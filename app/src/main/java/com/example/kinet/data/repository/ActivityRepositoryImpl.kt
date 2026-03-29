@@ -35,6 +35,9 @@ class ActivityRepositoryImpl(
     override fun getUserProfile(): Flow<UserProfile> =
         profileDao.get().map { it?.toDomain() ?: UserProfile.Default }
 
+    override fun isProfileSet(): Flow<Boolean> =
+        profileDao.get().map { it != null }
+
     override suspend fun updateTodaySteps(steps: Int) {
         val profile = profileDao.get().first()?.toDomain() ?: UserProfile.Default
         val distance = metricsEngine.calculateDistanceMeters(steps, profile.strideLengthCm)
