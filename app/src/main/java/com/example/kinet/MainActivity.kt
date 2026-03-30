@@ -23,6 +23,7 @@ import com.example.kinet.ui.MainViewModel
 import com.example.kinet.ui.MainViewModelFactory
 import com.example.kinet.ui.dashboard.DashboardScreen
 import com.example.kinet.ui.dashboard.DashboardViewModelFactory
+import com.example.kinet.ui.profile.ProfileEditScreen
 import com.example.kinet.ui.profile.ProfileSetupScreen
 import com.example.kinet.ui.theme.KinetTheme
 
@@ -44,19 +45,30 @@ class MainActivity : ComponentActivity() {
                     factory = MainViewModelFactory(applicationContext)
                 )
                 val isProfileSet by mainViewModel.isProfileSet.collectAsState()
+                val showProfileEdit by mainViewModel.showProfileEdit.collectAsState()
+                val userProfile by mainViewModel.userProfile.collectAsState()
 
                 when (isProfileSet) {
                     null -> Box(modifier = Modifier.fillMaxSize()) // loading — blank while DB query runs
                     false -> ProfileSetupScreen(
                         onSave = { h, w, s -> mainViewModel.saveProfile(h, w, s) }
                     )
-                    true -> Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                        DashboardScreen(
-                            viewModel = viewModel(
-                                factory = DashboardViewModelFactory(applicationContext)
-                            ),
-                            modifier = Modifier.padding(innerPadding)
+                    true -> if (showProfileEdit) {
+                        ProfileEditScreen(
+                            current = userProfile,
+                            onSave = { h, w, s -> mainViewModel.saveProfile(h, w, s) },
+                            onCancel = { mainViewModel.closeProfileEdit() }
                         )
+                    } else {
+                        Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                            DashboardScreen(
+                                viewModel = viewModel(
+                                    factory = DashboardViewModelFactory(applicationContext)
+                                ),
+                                onEditProfile = { mainViewModel.openProfileEdit() },
+                                modifier = Modifier.padding(innerPadding)
+                            )
+                        }
                     }
                 }
             }

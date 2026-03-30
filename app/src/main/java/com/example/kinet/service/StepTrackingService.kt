@@ -1,12 +1,16 @@
 package com.example.kinet.service
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import com.example.kinet.MainActivity
 import com.example.kinet.data.local.KinetDatabase
 import com.example.kinet.data.repository.ActivityRepositoryImpl
 import com.example.kinet.engine.MetricsEngine
@@ -58,6 +62,24 @@ class StepTrackingService : Service() {
         super.onDestroy()
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Swiping the app from recents kills the task on many OEM devices even
+        // with START_STICKY. Schedule a restart 1 s later so step tracking
+        // continues uninterrupted.
+        val restartIntent = Intent(applicationContext, StepTrackingService::class.java)
+        val pendingIntent = PendingIntent.getService(
+            applicationContext, 1, restartIntent,
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(AlarmManager::class.java)
+        alarmManager.set(
+            AlarmManager.ELAPSED_REALTIME,
+            SystemClock.elapsedRealtime() + 1_000L,
+            pendingIntent
+        )
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     // region Step base persistence (SharedPreferences)
@@ -100,12 +122,20 @@ class StepTrackingService : Service() {
             ).apply { description = "Tracks your steps in the background" }
             manager.createNotificationChannel(channel)
         }
+        val tapIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, tapIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Kinet")
             .setContentText("Tracking your steps")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
+            .setContentIntent(pendingIntent)
             .build()
     }
 
