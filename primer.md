@@ -2,78 +2,89 @@
 
 ## 1. Current State of the Project
 
-Phase 1 architecture is complete. The app tracks steps via a foreground service, persists data with Room, and has a full navigation structure with bottom tabs, onboarding, calibration, and profile management.
+Phase 1 architecture is complete. The app tracks steps via a foreground service, persists data with Room (v3), and has full navigation with bottom tabs, onboarding, calibration, a premium profile view page, and profile edit.
 
-**Stack:** Kotlin, Jetpack Compose, Android Sensor API (Step Counter + Step Detector), Room v2, SharedPreferences.
+**Stack:** Kotlin, Jetpack Compose, Android Sensor API, Room v3, SharedPreferences, Coil 2.7.0 (image loading).
 
 **Key files:**
-- `MainActivity.kt` — StateFlow-driven `when` routing; no NavController; hosts bottom nav scaffold
-- `MainViewModel.kt` — owns `isProfileSet`, `userProfile`, `currentTab`, `showProfileEdit`, `showCalibration`
+- `MainActivity.kt` — StateFlow-driven `when` routing; no NavController; hosts bottom nav scaffold; `ProfileAvatar` composable for TopAppBar icon
+- `MainViewModel.kt` — owns `isProfileSet`, `userProfile`, `currentTab`, `showProfile`, `showProfileEdit`, `showCalibration`, `appTheme`
+- `MainViewModelFactory.kt` — passes `SharedPreferences` ("kinet_prefs") to `MainViewModel`
 - `StepTrackingService.kt` — foreground service; registers both TYPE_STEP_COUNTER and TYPE_STEP_DETECTOR
 - `engine/StepEngine.kt` — delta calculation + timing/session validation via STEP_DETECTOR
 - `engine/CalibrationEngine.kt` — manual calibration + adaptive EMA for stride/cadence
 - `engine/MetricsEngine.kt` — distance, calories, active minutes formulas
 - `sensor/StepSensorManager.kt` — wraps sensor API; dual-sensor start with two callbacks
 - `ui/AppTab.kt` — enum with 4 tabs (HOME, STEPS, HABITO, REPORTS)
+- `ui/theme/AppTheme.kt` — enum: DYNAMIC, OCEAN, FOREST, SUNSET
+- `ui/theme/Theme.kt` — KinetTheme accepts AppTheme param; full light/dark color schemes per theme
+- `ui/theme/Color.kt` — palettes for Default (Purple), Ocean, Forest, Sunset
 - `ui/profile/ProfileSetupScreen.kt` — premium onboarding (Height, Weight, Daily Step Goal)
-- `ui/profile/ProfileEditScreen.kt` — full profile edit (adds Stride field)
+- `ui/profile/ProfileViewScreen.kt` — premium profile details page (see layout below)
+- `ui/profile/ProfileEditScreen.kt` — full profile edit (Height, Weight, Stride, Goal)
 - `ui/dashboard/DashboardScreen.kt` — Steps tab; metrics + CalibrationCard entry point
 - `ui/calibration/CalibrationScreen.kt` — 3-step guided walk: instruction → active → result/save
 - `ui/home/HomeScreen.kt` — placeholder
 - `ui/habito/HabitoScreen.kt` — placeholder
-- `ui/reports/ReportsScreen.kt` — 2 placeholder report cards
-- `data/local/KinetDatabase.kt` — Room v2 with MIGRATION_1_2
+- `ui/reports/ReportsScreen.kt` — placeholder report cards
+- `data/local/KinetDatabase.kt` — Room v3 with MIGRATION_1_2 + MIGRATION_2_3
 - `data/repository/ActivityRepositoryImpl.kt` — Room persistence layer
 
 ---
 
 ## 2. What Was Accomplished This Session
 
-### Step accuracy — sensor layer upgrade
-- `StepSensorManager` now registers **both** `TYPE_STEP_DETECTOR` (per-step timestamps) and `TYPE_STEP_COUNTER` (cumulative count) simultaneously
-- Added `onStepDetected` callback to `start()` — fires with `event.timestamp` (nanoseconds) for each detected step
-- `StepEngine` gained a full **timing validation layer**: 10-step rolling timestamp window, session detection (requires 5 consecutive steps within 3s gaps, clears state if gap > 3s), `isWalkingSession` public property, `avgStepIntervalMs()` for cadence
-- `CalibrationEngine` gained adaptive EMA methods: `updateStride(newStrideCm)` and `updateStepInterval(newIntervalMs)` (80/20 blend)
-- `StepTrackingService` wired up the new `onStepDetected` callback
+### Profile View Screen (new premium page)
+- Navigation flow: person icon in TopAppBar → `ProfileViewScreen` (view page), not directly to edit
+- Back from ProfileViewScreen → main scaffold
+- "Edit Profile" button inside → `ProfileEditScreen`; back/save from edit → back to ProfileViewScreen
 
-### CalibrationScreen (new screen)
-- 3-state machine: `Instruction → Active → Result → Saved`
-- Registers `TYPE_STEP_DETECTOR` directly in `CalibrationViewModel` during guided walk
-- `CalibrationEngine.calibrate(steps, distanceMeters)` computes new stride and saves to `UserProfile` via repository
-- `TopAppBar` with back arrow; `onBack` and `onDone` both route to `closeCalibration()` in `MainViewModel`
-- Entry point: `CalibrationCard` tappable card inside the Steps (Dashboard) tab
+**ProfileViewScreen layout:**
+- **Hero**: gradient Box (primary → secondary), height wraps content with `padding(vertical = 32.dp)` + top inset padding — no fixed height, so no dead space below text
+- Inside hero: 108dp circular avatar (white border, tappable) with 32dp camera badge overlay; "Kinet Athlete" title + "Fitness Tracker · Phase 1" subtitle
+- `Spacer(24.dp)` between hero box and body (outside the box, in the outer Column)
+- **Body Metrics**: 2×2 stat card grid — Height, Weight, Stride, Daily Goal — each with icon + large value + colored container (primaryContainer, secondaryContainer, tertiaryContainer, surfaceVariant)
+- **Appearance**: 4 ThemeChips (Dynamic, Ocean, Forest, Sunset) with colored dot + selected border — live theme switching
+- **Edit Profile** full-width button at bottom
 
-### Bottom navigation (4 tabs)
-- `AppTab` enum: HOME, STEPS, HABITO, REPORTS — each carries its label and `ImageVector` icon
-- `material-icons-extended` added to `libs.versions.toml` + `build.gradle.kts`
-- `MainActivity` restructured: shared `TopAppBar` (tab title + profile icon) + `NavigationBar` + tab content switching
-- Profile edit and CalibrationScreen remain full-screen overlays above the scaffold
-- `MainViewModel` gained `currentTab: StateFlow<AppTab>` and `setTab()`
+### Profile image in TopAppBar
+- `ProfileAvatar` composable in `MainActivity`: shows `AsyncImage` (32dp circle, Coil) when `profileImageUri` is set, falls back to `Person` icon when null
+- Image is the same URI saved from the photo picker — consistent across profile view and main nav
 
-### Premium onboarding redesign
-- `ProfileSetupScreen` fully redesigned: "Let's personalize your journey" header, illustration placeholder slot (marked for future Lottie/asset), 3 rounded-card input fields, large "Start Tracking" CTA
-- Fields: Height, Weight, Daily Step Goal (stride auto-calculated from height silently)
-- `ProfileEditScreen` updated: added `dailyStepGoal` field, rounded field shapes consistent with onboarding
+### Profile image upload
+- `PickVisualMedia` photo picker in `ProfileViewScreen`
+- `takePersistableUriPermission` called (wrapped in `runCatching`) for persistence across restarts
+- `MainViewModel.saveProfileImage(uri)` saves URI while preserving all other profile fields
 
-### dailyStepGoal — new field across the stack
-- `UserProfile` domain model: added `dailyStepGoal: Int = 10_000`
-- `UserProfileEntity`: added `dailyStepGoal` column
-- `KinetDatabase`: bumped to **version 2**, `MIGRATION_1_2` runs `ALTER TABLE user_profile ADD COLUMN dailyStepGoal INTEGER NOT NULL DEFAULT 10000`
-- `ActivityRepositoryImpl.saveUserProfile` persists it
-- `MainViewModel.saveProfile` updated to 4-param signature
-- `DashboardViewModel` exposes `stepGoal: StateFlow<Int>` from user profile
-- `DashboardScreen` uses live `stepGoal` — hardcoded constant removed
+### App theming infrastructure
+- `AppTheme` enum (DYNAMIC, OCEAN, FOREST, SUNSET) in `ui/theme/AppTheme.kt`
+- Full light + dark `ColorScheme` per theme in `Theme.kt`
+- `KinetTheme` accepts `appTheme: AppTheme` — applied at root in `MainActivity`
+- Theme persisted via SharedPreferences key `"app_theme"` (ordinal int)
+- `MainViewModel.setTheme()` updates both StateFlow and SharedPreferences
+
+### Data layer
+- `UserProfile`: added `profileImageUri: String? = null`
+- `UserProfileEntity`: added nullable `profileImageUri TEXT` column
+- `KinetDatabase` bumped to **version 3**, `MIGRATION_2_3`: `ALTER TABLE user_profile ADD COLUMN profileImageUri TEXT`
+- `saveProfile()` preserves existing `profileImageUri` when measurements are updated
+- `saveProfileImage()` dedicated function for image-only updates
+
+### Coil
+- `coil = "2.7.0"` in `libs.versions.toml`, `coil-compose` in `build.gradle.kts`
 
 ---
 
 ## 3. Immediate Next Steps
 
-1. **Physical device testing** — step counter and step detector sensors don't fire on emulators; all accuracy work needs real hardware validation
-2. **Session gate on DashboardScreen** — `StepEngine.isWalkingSession` is available but not yet surfaced in UI; consider a subtle "walking now" indicator on the Steps tab
-3. **Adaptive calibration hookup** — `CalibrationEngine.updateStride()` and `updateStepInterval()` exist but are not yet called after each calibration; wire them in `CalibrationViewModel.saveStride()`
-4. **Notification live step count** — foreground notification currently shows static "Tracking your steps"; update to show live count
-5. **Daily reset validation** — confirm step base resets correctly at midnight across reboots and `onTaskRemoved` restarts
-6. **Home tab content** — placeholder screen; plan what "personalized features" go here (Phase 2 scope)
+1. **Physical device testing** — step counter and step detector don't fire on emulators; all accuracy and image picker work needs real hardware
+2. **Profile name field** — hero hardcodes "Kinet Athlete"; add `name: String` to `UserProfile` + MIGRATION_3_4 so users can set their own name (editable in `ProfileEditScreen`)
+3. **Session gate on DashboardScreen** — `StepEngine.isWalkingSession` is available but not surfaced in UI; consider a subtle "walking now" badge on the Steps tab
+4. **Adaptive calibration hookup** — `CalibrationEngine.updateStride()` and `updateStepInterval()` exist but are not yet called after calibration in `CalibrationViewModel`
+5. **Notification live step count** — foreground notification shows static text; update to reflect live count
+6. **Daily reset validation** — confirm step base resets correctly at midnight across reboots and `onTaskRemoved` restarts
+7. **Home tab content** — currently placeholder; plan content (streak, weekly summary, motivational card?)
+8. **Habito + Reports** — fully placeholder; plan scope for Phase 2
 
 ---
 
@@ -81,15 +92,16 @@ Phase 1 architecture is complete. The app tracks steps via a foreground service,
 
 - `android.disallowKotlinSourceSets=false` in `gradle.properties` — KSP workaround, leave as-is
 - Accelerometer fallback in `StepSensorManager` is a stub — acceptable for Phase 1
-- `TYPE_STEP_DETECTOR` is registered twice on the same `SensorManager` instance if CalibrationScreen is open while the service is running — this is harmless (Android delivers events to both listeners independently) but worth noting
-- Habito and Reports screens are full placeholders — no functionality yet
+- `TYPE_STEP_DETECTOR` registered twice if CalibrationScreen is open while the service runs — harmless, Android delivers to both listeners independently
+- Profile name in hero is hardcoded as "Kinet Athlete" until a name field is added
 
 ---
 
 ## 5. Important Decisions This Session
 
-- **STEP_COUNTER stays the count source of truth** — STEP_DETECTOR is used only for timing/session validation and calibration counting, not for the main daily step total. Android's hardware counter is more reliable for sustained background tracking.
-- **No NavController** — routing stays StateFlow-driven `when` branching in `MainActivity`. Bottom nav is handled via `MainViewModel.currentTab`. Revisit if screen count grows beyond Phase 1.
-- **Stride hidden from onboarding** — ProfileSetupScreen only asks Height/Weight/StepGoal; stride auto-calculated as `height × 0.415`. Stride remains editable in ProfileEditScreen and via the CalibrationScreen.
-- **Room MIGRATION_1_2 with DEFAULT** — chose `ALTER TABLE` with `DEFAULT 10000` rather than destructive migration; existing users keep their profile data.
-- **Illustration slot marked, not implemented** — `IllustrationPlaceholder()` in `ProfileSetupScreen` is a clearly-commented `Box` sized for a future Lottie animation or graphic asset.
+- **Hero uses wrapping height, not fixed** — removed `height(290.dp)` in favour of `padding(vertical = 32.dp)` + outer `Spacer(24.dp)`, so the gradient card never has dead space below the subtitle text
+- **ProfileAvatar in TopAppBar** — same Coil `AsyncImage` as the profile page; consistent identity across the app with zero extra state
+- **Appearance section kept** — theming chips remain in `ProfileViewScreen` even after a brief removal; theming infrastructure is live and functional
+- **STEP_COUNTER stays the count source of truth** — STEP_DETECTOR used only for timing/session and calibration
+- **No NavController** — routing stays StateFlow-driven `when` in `MainActivity`; revisit if screen count grows beyond Phase 1
+- **Room MIGRATION_2_3 with nullable column** — `profileImageUri TEXT` (no DEFAULT needed since nullable)

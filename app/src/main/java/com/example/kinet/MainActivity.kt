@@ -9,9 +9,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -22,11 +25,19 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.example.kinet.service.StepTrackingService
 import com.example.kinet.ui.AppTab
 import com.example.kinet.ui.MainViewModel
@@ -39,6 +50,7 @@ import com.example.kinet.ui.habito.HabitoScreen
 import com.example.kinet.ui.home.HomeScreen
 import com.example.kinet.ui.profile.ProfileEditScreen
 import com.example.kinet.ui.profile.ProfileSetupScreen
+import com.example.kinet.ui.profile.ProfileViewScreen
 import com.example.kinet.ui.reports.ReportsScreen
 import com.example.kinet.ui.theme.KinetTheme
 
@@ -56,21 +68,22 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         requestRequiredPermissions()
         setContent {
-            KinetTheme {
-                val mainViewModel: MainViewModel = viewModel(
-                    factory = MainViewModelFactory(applicationContext)
-                )
-                val isProfileSet by mainViewModel.isProfileSet.collectAsState()
-                val showProfileEdit by mainViewModel.showProfileEdit.collectAsState()
-                val showCalibration by mainViewModel.showCalibration.collectAsState()
-                val userProfile by mainViewModel.userProfile.collectAsState()
-                val currentTab by mainViewModel.currentTab.collectAsState()
+            val mainViewModel: MainViewModel = viewModel(
+                factory = MainViewModelFactory(applicationContext)
+            )
+            val isProfileSet by mainViewModel.isProfileSet.collectAsState()
+            val showProfile by mainViewModel.showProfile.collectAsState()
+            val showProfileEdit by mainViewModel.showProfileEdit.collectAsState()
+            val showCalibration by mainViewModel.showCalibration.collectAsState()
+            val userProfile by mainViewModel.userProfile.collectAsState()
+            val currentTab by mainViewModel.currentTab.collectAsState()
+            val appTheme by mainViewModel.appTheme.collectAsState()
 
+            KinetTheme(appTheme = appTheme) {
                 when (isProfileSet) {
-                    null -> Box(modifier = Modifier.fillMaxSize()) // loading
+                    null -> Box(modifier = Modifier.fillMaxSize()) // loading splash
                     false -> ProfileSetupScreen(
                         onSave = { h, w, goal ->
-                            // Stride auto-calculated from height during onboarding
                             mainViewModel.saveProfile(h, w, h * 0.415f, goal)
                         }
                     )
@@ -79,6 +92,14 @@ class MainActivity : ComponentActivity() {
                             current = userProfile,
                             onSave = { h, w, s, goal -> mainViewModel.saveProfile(h, w, s, goal) },
                             onCancel = { mainViewModel.closeProfileEdit() }
+                        )
+                        showProfile -> ProfileViewScreen(
+                            profile = userProfile,
+                            appTheme = appTheme,
+                            onThemeChange = { mainViewModel.setTheme(it) },
+                            onEditProfile = { mainViewModel.openProfileEdit() },
+                            onBack = { mainViewModel.closeProfile() },
+                            onImagePick = { uri -> mainViewModel.saveProfileImage(uri) }
                         )
                         showCalibration -> CalibrationScreen(
                             viewModel = viewModel(
@@ -92,11 +113,8 @@ class MainActivity : ComponentActivity() {
                                 TopAppBar(
                                     title = { Text(currentTab.label) },
                                     actions = {
-                                        IconButton(onClick = { mainViewModel.openProfileEdit() }) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Person,
-                                                contentDescription = "Edit Profile"
-                                            )
+                                        IconButton(onClick = { mainViewModel.openProfile() }) {
+                                            ProfileAvatar(imageUri = userProfile.profileImageUri)
                                         }
                                     }
                                 )
@@ -168,5 +186,29 @@ class MainActivity : ComponentActivity() {
     private fun startStepTrackingService() {
         val intent = Intent(this, StepTrackingService::class.java)
         ContextCompat.startForegroundService(this, intent)
+    }
+}
+
+@Composable
+private fun ProfileAvatar(imageUri: String?) {
+    val context = LocalContext.current
+    if (imageUri != null) {
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(imageUri)
+                .crossfade(true)
+                .build(),
+            contentDescription = "Profile picture",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(Color.Transparent)
+        )
+    } else {
+        Icon(
+            imageVector = Icons.Filled.Person,
+            contentDescription = "Profile"
+        )
     }
 }

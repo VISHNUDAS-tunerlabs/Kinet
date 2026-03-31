@@ -17,6 +17,7 @@ class MainViewModelFactory(private val context: Context) : ViewModelProvider.Fac
             profileDao = db.userProfileDao(),
             metricsEngine = MetricsEngine()
         )
-        return MainViewModel(repository) as T
+        val prefs = context.getSharedPreferences("kinet_prefs", Context.MODE_PRIVATE)
+        return MainViewModel(repository, prefs) as T
     }
 }

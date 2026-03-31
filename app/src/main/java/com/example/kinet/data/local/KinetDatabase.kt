@@ -13,7 +13,7 @@ import com.example.kinet.data.local.entity.UserProfileEntity
 
 @Database(
     entities = [DailyActivityEntity::class, UserProfileEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class KinetDatabase : RoomDatabase() {
@@ -33,6 +33,14 @@ abstract class KinetDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE user_profile ADD COLUMN profileImageUri TEXT"
+                )
+            }
+        }
+
         fun getInstance(context: Context): KinetDatabase =
             INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -40,7 +48,7 @@ abstract class KinetDatabase : RoomDatabase() {
                     KinetDatabase::class.java,
                     "kinet_db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build().also { INSTANCE = it }
             }
     }
