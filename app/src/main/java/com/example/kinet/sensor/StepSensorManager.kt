@@ -25,19 +25,39 @@ class StepSensorManager(context: Context) : SensorEventListener {
 
     val hasHardwareStepCounter: Boolean = stepCounterSensor != null
 
-    private var onStepCount: ((Long) -> Unit)? = null
+    private val stepDetectorSensor: Sensor? =
+        sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
 
-    fun start(onStepCount: (Long) -> Unit) {
+    private var onStepCount: ((Long) -> Unit)? = null
+    private var onStepDetected: ((Long) -> Unit)? = null
+
+    /**
+     * @param onStepCount    Fires with the cumulative step count from TYPE_STEP_COUNTER.
+     * @param onStepDetected Fires with the sensor event timestamp (ns) from TYPE_STEP_DETECTOR,
+     *                       once per detected step. Used for timing/rhythm validation.
+     */
+    fun start(
+        onStepCount: (Long) -> Unit,
+        onStepDetected: ((Long) -> Unit)? = null
+    ) {
         this.onStepCount = onStepCount
-        val sensor = if (hasHardwareStepCounter) stepCounterSensor else accelerometerSensor
-        sensor?.let {
+        this.onStepDetected = onStepDetected
+
+        val counterSensor = if (hasHardwareStepCounter) stepCounterSensor else accelerometerSensor
+        counterSensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+
+        // Register detector separately — it fires once per step with a timestamp
+        stepDetectorSensor?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST)
         }
     }
 
     fun stop() {
         sensorManager.unregisterListener(this)
         onStepCount = null
+        onStepDetected = null
     }
 
     override fun onSensorChanged(event: SensorEvent) {
@@ -45,9 +65,12 @@ class StepSensorManager(context: Context) : SensorEventListener {
             Sensor.TYPE_STEP_COUNTER -> {
                 onStepCount?.invoke(event.values[0].toLong())
             }
+            Sensor.TYPE_STEP_DETECTOR -> {
+                // event.timestamp is nanoseconds since boot; values[0] == 1.0 means one step
+                onStepDetected?.invoke(event.timestamp)
+            }
             Sensor.TYPE_ACCELEROMETER -> {
-                // Accelerometer fallback — stub only.
-                // Full implementation would apply a low-pass filter + peak detection.
+                // Fallback stub — peak detection not implemented in Phase 1
             }
         }
     }

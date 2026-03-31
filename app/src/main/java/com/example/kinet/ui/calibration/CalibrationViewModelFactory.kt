@@ -1,15 +1,13 @@
-package com.example.kinet.ui.dashboard
+package com.example.kinet.ui.calibration
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.example.kinet.data.local.KinetDatabase
 import com.example.kinet.data.repository.ActivityRepositoryImpl
-import com.example.kinet.domain.usecase.GetTodayActivityUseCase
-import com.example.kinet.domain.usecase.GetWeeklyActivitiesUseCase
 import com.example.kinet.engine.MetricsEngine
 
-class DashboardViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
+class CalibrationViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
 
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -19,10 +17,6 @@ class DashboardViewModelFactory(private val context: Context) : ViewModelProvide
             profileDao = db.userProfileDao(),
             metricsEngine = MetricsEngine()
         )
-        return DashboardViewModel(
-            getTodayActivity = GetTodayActivityUseCase(repository),
-            getWeeklyActivities = GetWeeklyActivitiesUseCase(repository),
-            repository = repository
-        ) as T
+        return CalibrationViewModel(context, repository) as T
     }
 }

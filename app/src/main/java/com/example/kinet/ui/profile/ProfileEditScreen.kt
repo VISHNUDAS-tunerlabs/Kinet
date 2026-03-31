@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -37,35 +38,28 @@ import com.example.kinet.domain.model.UserProfile
 @Composable
 fun ProfileEditScreen(
     current: UserProfile,
-    onSave: (heightCm: Float, weightKg: Float, strideLengthCm: Float) -> Unit,
+    onSave: (heightCm: Float, weightKg: Float, strideLengthCm: Float, dailyStepGoal: Int) -> Unit,
     onCancel: () -> Unit
 ) {
     var heightText by remember { mutableStateOf("%.0f".format(current.heightCm)) }
     var weightText by remember { mutableStateOf("%.0f".format(current.weightKg)) }
     var strideText by remember { mutableStateOf("%.0f".format(current.strideLengthCm)) }
-    var strideManuallyEdited by remember { mutableStateOf(false) }
+    var stepGoalText by remember { mutableStateOf("${current.dailyStepGoal}") }
 
     val heightFloat = heightText.toFloatOrNull()
-
-    val autoStride = if (heightFloat != null && heightFloat > 0) {
-        "%.0f".format(heightFloat * 0.415f)
-    } else null
-
-    val displayedStride = if (!strideManuallyEdited && autoStride != null &&
-        autoStride == "%.0f".format(current.heightCm * 0.415f)
-    ) strideText else if (!strideManuallyEdited && autoStride != null &&
-        strideText == "%.0f".format(current.strideLengthCm)
-    ) strideText else strideText
-
-    val resolvedStride = displayedStride.toFloatOrNull()
+    val weightFloat = weightText.toFloatOrNull()
+    val strideFloat = strideText.toFloatOrNull()
+    val stepGoalInt = stepGoalText.toIntOrNull()
 
     val isValid = heightFloat != null && heightFloat > 0 &&
-            weightText.toFloatOrNull()?.let { it > 0 } == true &&
-            resolvedStride != null && resolvedStride > 0
+            weightFloat != null && weightFloat > 0 &&
+            strideFloat != null && strideFloat > 0 &&
+            stepGoalInt != null && stepGoalInt > 0
 
     val hasChanges = heightFloat != current.heightCm ||
-            weightText.toFloatOrNull() != current.weightKg ||
-            resolvedStride != current.strideLengthCm
+            weightFloat != current.weightKg ||
+            strideFloat != current.strideLengthCm ||
+            stepGoalInt != current.dailyStepGoal
 
     Scaffold(
         topBar = {
@@ -101,31 +95,46 @@ fun ProfileEditScreen(
             OutlinedTextField(
                 value = heightText,
                 onValueChange = { heightText = it },
-                label = { Text("Height (cm)") },
+                label = { Text("Height") },
+                suffix = { Text("cm") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             )
 
             OutlinedTextField(
                 value = weightText,
                 onValueChange = { weightText = it },
-                label = { Text("Weight (kg)") },
+                label = { Text("Weight") },
+                suffix = { Text("kg") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             )
 
             OutlinedTextField(
                 value = strideText,
-                onValueChange = {
-                    strideManuallyEdited = true
-                    strideText = it
-                },
-                label = { Text("Stride Length (cm)") },
+                onValueChange = { strideText = it },
+                label = { Text("Stride Length") },
+                suffix = { Text("cm") },
                 supportingText = { Text("Tip: stride ≈ height × 0.415") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            OutlinedTextField(
+                value = stepGoalText,
+                onValueChange = { stepGoalText = it },
+                label = { Text("Daily Step Goal") },
+                suffix = { Text("steps") },
+                supportingText = { Text("Recommended: 8,000 – 12,000 steps") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             )
 
@@ -137,16 +146,18 @@ fun ProfileEditScreen(
             ) {
                 OutlinedButton(
                     onClick = onCancel,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Text("Cancel")
                 }
                 Button(
                     onClick = {
-                        onSave(heightFloat!!, weightText.toFloat(), resolvedStride!!)
+                        onSave(heightFloat!!, weightFloat!!, strideFloat!!, stepGoalInt!!)
                     },
                     enabled = isValid && hasChanges,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Text("Save")
                 }

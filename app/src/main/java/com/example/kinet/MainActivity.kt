@@ -12,19 +12,34 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.kinet.service.StepTrackingService
+import com.example.kinet.ui.AppTab
 import com.example.kinet.ui.MainViewModel
 import com.example.kinet.ui.MainViewModelFactory
+import com.example.kinet.ui.calibration.CalibrationScreen
+import com.example.kinet.ui.calibration.CalibrationViewModelFactory
 import com.example.kinet.ui.dashboard.DashboardScreen
 import com.example.kinet.ui.dashboard.DashboardViewModelFactory
+import com.example.kinet.ui.habito.HabitoScreen
+import com.example.kinet.ui.home.HomeScreen
 import com.example.kinet.ui.profile.ProfileEditScreen
 import com.example.kinet.ui.profile.ProfileSetupScreen
+import com.example.kinet.ui.reports.ReportsScreen
 import com.example.kinet.ui.theme.KinetTheme
 
 class MainActivity : ComponentActivity() {
@@ -35,6 +50,7 @@ class MainActivity : ComponentActivity() {
         startStepTrackingService()
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -46,28 +62,81 @@ class MainActivity : ComponentActivity() {
                 )
                 val isProfileSet by mainViewModel.isProfileSet.collectAsState()
                 val showProfileEdit by mainViewModel.showProfileEdit.collectAsState()
+                val showCalibration by mainViewModel.showCalibration.collectAsState()
                 val userProfile by mainViewModel.userProfile.collectAsState()
+                val currentTab by mainViewModel.currentTab.collectAsState()
 
                 when (isProfileSet) {
-                    null -> Box(modifier = Modifier.fillMaxSize()) // loading — blank while DB query runs
+                    null -> Box(modifier = Modifier.fillMaxSize()) // loading
                     false -> ProfileSetupScreen(
-                        onSave = { h, w, s -> mainViewModel.saveProfile(h, w, s) }
+                        onSave = { h, w, goal ->
+                            // Stride auto-calculated from height during onboarding
+                            mainViewModel.saveProfile(h, w, h * 0.415f, goal)
+                        }
                     )
-                    true -> if (showProfileEdit) {
-                        ProfileEditScreen(
+                    true -> when {
+                        showProfileEdit -> ProfileEditScreen(
                             current = userProfile,
-                            onSave = { h, w, s -> mainViewModel.saveProfile(h, w, s) },
+                            onSave = { h, w, s, goal -> mainViewModel.saveProfile(h, w, s, goal) },
                             onCancel = { mainViewModel.closeProfileEdit() }
                         )
-                    } else {
-                        Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                            DashboardScreen(
-                                viewModel = viewModel(
-                                    factory = DashboardViewModelFactory(applicationContext)
-                                ),
-                                onEditProfile = { mainViewModel.openProfileEdit() },
-                                modifier = Modifier.padding(innerPadding)
-                            )
+                        showCalibration -> CalibrationScreen(
+                            viewModel = viewModel(
+                                factory = CalibrationViewModelFactory(applicationContext)
+                            ),
+                            onDone = { mainViewModel.closeCalibration() },
+                            onBack = { mainViewModel.closeCalibration() }
+                        )
+                        else -> Scaffold(
+                            topBar = {
+                                TopAppBar(
+                                    title = { Text(currentTab.label) },
+                                    actions = {
+                                        IconButton(onClick = { mainViewModel.openProfileEdit() }) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Person,
+                                                contentDescription = "Edit Profile"
+                                            )
+                                        }
+                                    }
+                                )
+                            },
+                            bottomBar = {
+                                NavigationBar {
+                                    AppTab.entries.forEach { tab ->
+                                        NavigationBarItem(
+                                            selected = currentTab == tab,
+                                            onClick = { mainViewModel.setTab(tab) },
+                                            icon = {
+                                                Icon(
+                                                    imageVector = tab.icon,
+                                                    contentDescription = tab.label
+                                                )
+                                            },
+                                            label = { Text(tab.label) }
+                                        )
+                                    }
+                                }
+                            }
+                        ) { innerPadding ->
+                            when (currentTab) {
+                                AppTab.HOME -> HomeScreen(
+                                    modifier = Modifier.padding(innerPadding)
+                                )
+                                AppTab.STEPS -> DashboardScreen(
+                                    viewModel = viewModel(
+                                        factory = DashboardViewModelFactory(applicationContext)
+                                    ),
+                                    onCalibrate = { mainViewModel.openCalibration() },
+                                    modifier = Modifier.padding(innerPadding)
+                                )
+                                AppTab.HABITO -> HabitoScreen(
+                                    modifier = Modifier.padding(innerPadding)
+                                )
+                                AppTab.REPORTS -> ReportsScreen(
+                                    modifier = Modifier.padding(innerPadding)
+                                )
+                            }
                         }
                     }
                 }

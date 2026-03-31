@@ -8,14 +8,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -31,16 +32,15 @@ import com.example.kinet.ui.components.MetricCard
 import com.example.kinet.ui.components.WeeklyChart
 import kotlin.math.min
 
-private const val DAILY_STEP_GOAL = 10_000
-
 @Composable
 fun DashboardScreen(
     viewModel: DashboardViewModel,
-    onEditProfile: () -> Unit,
+    onCalibrate: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val today by viewModel.todayActivity.collectAsState()
     val weekly by viewModel.weeklyActivities.collectAsState()
+    val stepGoal by viewModel.stepGoal.collectAsState()
 
     Column(
         modifier = modifier
@@ -49,28 +49,14 @@ fun DashboardScreen(
             .padding(horizontal = 16.dp, vertical = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Today",
-                style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.Bold
-            )
-            IconButton(onClick = onEditProfile) {
-                Icon(
-                    imageVector = Icons.Filled.Person,
-                    contentDescription = "Edit Profile",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
+        Text(
+            text = "Today",
+            style = MaterialTheme.typography.headlineLarge,
+            fontWeight = FontWeight.Bold
+        )
 
         // Step goal progress
-        StepGoalCard(activity = today)
+        StepGoalCard(activity = today, goal = stepGoal)
 
         // Metric cards grid
         Row(
@@ -129,13 +115,68 @@ fun DashboardScreen(
                 )
             }
         }
+
+        // Calibration entry point
+        Spacer(modifier = Modifier.height(4.dp))
+        CalibrationCard(onClick = onCalibrate)
     }
 }
 
 @Composable
-private fun StepGoalCard(activity: DailyActivity) {
-    val progress = min(activity.steps.toFloat() / DAILY_STEP_GOAL, 1f)
-    val remaining = (DAILY_STEP_GOAL - activity.steps).coerceAtLeast(0)
+private fun CalibrationCard(onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                Column {
+                    Text(
+                        text = "Calibrate Stride",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                    Text(
+                        text = "Walk a known distance to improve accuracy",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                    )
+                }
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        }
+    }
+}
+
+@Composable
+private fun StepGoalCard(activity: DailyActivity, goal: Int) {
+    val progress = min(activity.steps.toFloat() / goal, 1f)
+    val remaining = (goal - activity.steps).coerceAtLeast(0)
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -162,9 +203,9 @@ private fun StepGoalCard(activity: DailyActivity) {
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
-                Column(horizontalAlignment = androidx.compose.ui.Alignment.End) {
+                Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        text = "Goal: %,d".format(DAILY_STEP_GOAL),
+                        text = "Goal: %,d".format(goal),
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onPrimaryContainer
                     )

@@ -28,6 +28,13 @@ class MainViewModel(private val repository: ActivityRepository) : ViewModel() {
             initialValue = UserProfile.Default
         )
 
+    private val _currentTab = MutableStateFlow(AppTab.HOME)
+    val currentTab: StateFlow<AppTab> = _currentTab.asStateFlow()
+
+    fun setTab(tab: AppTab) {
+        _currentTab.value = tab
+    }
+
     private val _showProfileEdit = MutableStateFlow(false)
     val showProfileEdit: StateFlow<Boolean> = _showProfileEdit.asStateFlow()
 
@@ -39,9 +46,20 @@ class MainViewModel(private val repository: ActivityRepository) : ViewModel() {
         _showProfileEdit.value = false
     }
 
-    fun saveProfile(heightCm: Float, weightKg: Float, strideLengthCm: Float) {
+    private val _showCalibration = MutableStateFlow(false)
+    val showCalibration: StateFlow<Boolean> = _showCalibration.asStateFlow()
+
+    fun openCalibration() {
+        _showCalibration.value = true
+    }
+
+    fun closeCalibration() {
+        _showCalibration.value = false
+    }
+
+    fun saveProfile(heightCm: Float, weightKg: Float, strideLengthCm: Float, dailyStepGoal: Int) {
         viewModelScope.launch {
-            repository.saveUserProfile(UserProfile(heightCm, weightKg, strideLengthCm))
+            repository.saveUserProfile(UserProfile(heightCm, weightKg, strideLengthCm, dailyStepGoal))
             _showProfileEdit.value = false
         }
     }

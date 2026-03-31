@@ -2,16 +2,19 @@ package com.example.kinet.ui.dashboard
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.kinet.data.repository.ActivityRepository
 import com.example.kinet.domain.model.DailyActivity
 import com.example.kinet.domain.usecase.GetTodayActivityUseCase
 import com.example.kinet.domain.usecase.GetWeeklyActivitiesUseCase
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 class DashboardViewModel(
     getTodayActivity: GetTodayActivityUseCase,
-    getWeeklyActivities: GetWeeklyActivitiesUseCase
+    getWeeklyActivities: GetWeeklyActivitiesUseCase,
+    repository: ActivityRepository
 ) : ViewModel() {
 
     val todayActivity: StateFlow<DailyActivity> = getTodayActivity()
@@ -26,5 +29,13 @@ class DashboardViewModel(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = emptyList()
+        )
+
+    val stepGoal: StateFlow<Int> = repository.getUserProfile()
+        .map { it.dailyStepGoal }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = 10_000
         )
 }

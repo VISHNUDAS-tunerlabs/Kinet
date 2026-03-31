@@ -46,13 +46,20 @@ class StepTrackingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(NOTIFICATION_ID, buildNotification())
-        sensorManager.start { sensorValue ->
-            val todaySteps = stepEngine.process(sensorValue)
-            persistStepBase(sensorValue)
-            scope.launch {
-                repository.updateTodaySteps(todaySteps)
+        sensorManager.start(
+            onStepCount = { sensorValue ->
+                val todaySteps = stepEngine.process(sensorValue)
+                persistStepBase(sensorValue)
+                scope.launch {
+                    repository.updateTodaySteps(todaySteps)
+                }
+            },
+            onStepDetected = { eventTimeNs ->
+                // Update timing/session state — used to gate false-positive writes
+                // and feeds adaptive calibration in future phases
+                stepEngine.onStepDetected(eventTimeNs)
             }
-        }
+        )
         return START_STICKY
     }
 
