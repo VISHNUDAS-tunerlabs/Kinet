@@ -6,6 +6,7 @@ import com.example.kinet.data.repository.ActivityRepository
 import com.example.kinet.domain.model.DailyActivity
 import com.example.kinet.domain.usecase.GetTodayActivityUseCase
 import com.example.kinet.domain.usecase.GetWeeklyActivitiesUseCase
+import com.example.kinet.engine.StepSessionState
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -37,5 +38,13 @@ class DashboardViewModel(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = 10_000
+        )
+
+    /** True when the sensor layer is detecting an active walking session. */
+    val isWalkingSession: StateFlow<Boolean> = StepSessionState.isWalking
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = false
         )
 }

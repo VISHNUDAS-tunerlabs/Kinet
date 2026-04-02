@@ -1,4 +1,4 @@
-package com.example.kinet.ui
+package com.example.kinet.ui.reports
 
 import android.content.Context
 import androidx.lifecycle.ViewModel
@@ -8,18 +8,16 @@ import com.example.kinet.data.repository.ActivityRepositoryImpl
 import com.example.kinet.data.repository.HabitRepositoryImpl
 import com.example.kinet.engine.MetricsEngine
 
-class MainViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
-
+class ReportsViewModelFactory(private val context: Context) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         val db = KinetDatabase.getInstance(context)
-        val repository = ActivityRepositoryImpl(
+        val activityRepo = ActivityRepositoryImpl(
             activityDao = db.dailyActivityDao(),
             profileDao = db.userProfileDao(),
             metricsEngine = MetricsEngine()
         )
-        val habitRepository = HabitRepositoryImpl(db.habitDao())
-        val prefs = context.getSharedPreferences("kinet_prefs", Context.MODE_PRIVATE)
-        return MainViewModel(repository, habitRepository, prefs) as T
+        val habitRepo = HabitRepositoryImpl(db.habitDao())
+        return ReportsViewModel(activityRepo, habitRepo) as T
     }
 }

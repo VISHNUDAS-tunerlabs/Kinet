@@ -2,89 +2,74 @@
 
 ## 1. Current State of the Project
 
-Phase 1 architecture is complete. The app tracks steps via a foreground service, persists data with Room (v3), and has full navigation with bottom tabs, onboarding, calibration, a premium profile view page, and profile edit.
+Phase 1 is feature-complete. All four tabs are live with real data. The app tracks steps via a foreground service, persists data with Room (v5), and has full navigation with bottom tabs, onboarding, calibration, profile (name/photo/edit/streaks), a fully functional Habito module with live streaks and reminders that survive reboot, and a Reports tab with a GitHub-style habit heatmap.
 
-**Stack:** Kotlin, Jetpack Compose, Android Sensor API, Room v3, SharedPreferences, Coil 2.7.0 (image loading).
+**Stack:** Kotlin, Jetpack Compose, Android Sensor API, Room v5, SharedPreferences.
 
 **Key files:**
-- `MainActivity.kt` — StateFlow-driven `when` routing; no NavController; hosts bottom nav scaffold; `ProfileAvatar` composable for TopAppBar icon
-- `MainViewModel.kt` — owns `isProfileSet`, `userProfile`, `currentTab`, `showProfile`, `showProfileEdit`, `showCalibration`, `appTheme`
-- `MainViewModelFactory.kt` — passes `SharedPreferences` ("kinet_prefs") to `MainViewModel`
-- `StepTrackingService.kt` — foreground service; registers both TYPE_STEP_COUNTER and TYPE_STEP_DETECTOR
-- `engine/StepEngine.kt` — delta calculation + timing/session validation via STEP_DETECTOR
-- `engine/CalibrationEngine.kt` — manual calibration + adaptive EMA for stride/cadence
+
+### App shell
+- `MainActivity.kt` — StateFlow-driven `when` routing; no NavController; passes typed ViewModels to all screens; collects `currentStreak` + `bestStreak` from MainViewModel for ProfileViewScreen
+- `MainViewModel.kt` — owns `isProfileSet`, `userProfile`, `currentTab`, `showProfile`, `showProfileEdit`, `showCalibration`, `appTheme`, `currentStreak`, `bestStreak`; depends on both `ActivityRepository` and `HabitRepository`
+- `MainViewModelFactory.kt` — wires `ActivityRepositoryImpl` + `HabitRepositoryImpl` + SharedPreferences
+
+### Sensor & engine
+- `service/StepTrackingService.kt` — foreground service; NOTIFICATION_ID = 100; `collectingActivity` guard; live notification `"%,d steps · %.0f kcal"`; calls `StepSessionState.update()` on every STEP_DETECTOR event
+- `service/HabitReminderReceiver.kt` — BroadcastReceiver; NOTIFICATION_ID = 200; `HabitReminderScheduler` object inside
+- `service/BootReceiver.kt` — `ACTION_BOOT_COMPLETED` receiver; re-schedules all reminders via `HabitReminderScheduler.schedule()` using `getHabitsWithReminders()` DAO query
+- `engine/StepEngine.kt` — delta calculation + timing/session detection via STEP_DETECTOR
+- `engine/StepSessionState.kt` — process-wide singleton `MutableStateFlow<Boolean>`; updated by service, observed by DashboardViewModel
+- `engine/CalibrationEngine.kt` — manual calibration + adaptive EMA (80/20) for stride and cadence
 - `engine/MetricsEngine.kt` — distance, calories, active minutes formulas
-- `sensor/StepSensorManager.kt` — wraps sensor API; dual-sensor start with two callbacks
-- `ui/AppTab.kt` — enum with 4 tabs (HOME, STEPS, HABITO, REPORTS)
-- `ui/theme/AppTheme.kt` — enum: DYNAMIC, OCEAN, FOREST, SUNSET
-- `ui/theme/Theme.kt` — KinetTheme accepts AppTheme param; full light/dark color schemes per theme
-- `ui/theme/Color.kt` — palettes for Default (Purple), Ocean, Forest, Sunset
-- `ui/profile/ProfileSetupScreen.kt` — premium onboarding (Height, Weight, Daily Step Goal)
-- `ui/profile/ProfileViewScreen.kt` — premium profile details page (see layout below)
-- `ui/profile/ProfileEditScreen.kt` — full profile edit (Height, Weight, Stride, Goal)
-- `ui/dashboard/DashboardScreen.kt` — Steps tab; metrics + CalibrationCard entry point
-- `ui/calibration/CalibrationScreen.kt` — 3-step guided walk: instruction → active → result/save
-- `ui/home/HomeScreen.kt` — placeholder
-- `ui/habito/HabitoScreen.kt` — placeholder
-- `ui/reports/ReportsScreen.kt` — placeholder report cards
-- `data/local/KinetDatabase.kt` — Room v3 with MIGRATION_1_2 + MIGRATION_2_3
-- `data/repository/ActivityRepositoryImpl.kt` — Room persistence layer
+
+### Data layer
+- `data/local/KinetDatabase.kt` — Room v5; MIGRATION_1_2 through MIGRATION_4_5
+- `data/local/dao/HabitDao.kt` — `getActiveHabits()`, `getHabitsWithReminders()`, `getById()`, `insertOrReplace()`, `softDelete()`, `getLogsByDate()`, `getLogsByHabitId()`, `getLogsSince()`, `insertOrReplaceLog()`, `updateStreaks()`
+- `data/repository/HabitRepositoryImpl.kt` — `logHabit()` triggers `recalculateStreak()`; streak walks back up to 365 days of COMPLETED logs; updates `streakCount` + `bestStreak`; `getLogsSince()` exposed for Reports
+
+### UI — Dashboard (Steps tab)
+- `ui/dashboard/DashboardViewModel.kt` — observes `StepSessionState.isWalking` as `isWalkingSession`
+- `ui/dashboard/DashboardScreen.kt` — animated "Walking" badge (fadeIn/fadeOut) on StepGoalCard; calibration entry card at bottom
+
+### UI — Calibration
+- `ui/calibration/CalibrationViewModel.kt` — creates `CalibrationEngine` in `init`; records step timestamps during walk; `stopWalk()` computes avg interval; `saveStride()` calls `engine.calibrate()` + `engine.updateStepInterval()`
+
+### UI — Profile
+- `ui/profile/ProfileSetupScreen.kt` — onboarding; optional name field first
+- `ui/profile/ProfileViewScreen.kt` — hero with name/avatar; Body Metrics cards; **Habit Streaks section** (current + best streak, only shown when > 0); Appearance theme chips; Edit Profile button
+- `ui/profile/ProfileEditScreen.kt` — name, height, weight, stride, goal fields
+
+### UI — Habito
+- `ui/habito/HabitoScreen.kt` — three sub-screens: LIST, ADD_EDIT, DAILY_LOG; streak shown as `"N day streak"` in primary color; category icons; reminder time display
+- `ui/habito/HabitoViewModel.kt` — sub-screen nav; step-based auto-evaluation via `combine`; save/delete/log
+- `ui/habito/HabitoViewModelFactory.kt`
+
+### UI — Reports
+- `ui/reports/ReportsViewModel.kt` — combines `weeklyActivities + activeHabits + getLogsSince(16weeksAgo)`; computes step summaries, `HabitWeekStats` (7-day per-habit), and `heatmapWeeks` (16×7 grid of `HeatmapDay`)
+- `ui/reports/ReportsScreen.kt` — This Week: step chart + 6 stat cards; Habit Activity: heatmap card + per-habit cards with completion bar
+- `ui/reports/HabitHeatmap.kt` — Canvas composable; 16 cols × 7 rows; month labels top; M/W/F day labels left; 5 colour levels (surfaceVariant → primary at 4 intensities); legend bottom-right; theme-aware colours resolved before Canvas
+- `ui/reports/ReportsViewModelFactory.kt`
+
+### UI — Components
+- `ui/components/WeeklyChart.kt` — Canvas bar chart; reused on Dashboard and Reports
+- `ui/components/MetricCard.kt`
 
 ---
 
 ## 2. What Was Accomplished This Session
 
-### Profile View Screen (new premium page)
-- Navigation flow: person icon in TopAppBar → `ProfileViewScreen` (view page), not directly to edit
-- Back from ProfileViewScreen → main scaffold
-- "Edit Profile" button inside → `ProfileEditScreen`; back/save from edit → back to ProfileViewScreen
-
-**ProfileViewScreen layout:**
-- **Hero**: gradient Box (primary → secondary), height wraps content with `padding(vertical = 32.dp)` + top inset padding — no fixed height, so no dead space below text
-- Inside hero: 108dp circular avatar (white border, tappable) with 32dp camera badge overlay; "Kinet Athlete" title + "Fitness Tracker · Phase 1" subtitle
-- `Spacer(24.dp)` between hero box and body (outside the box, in the outer Column)
-- **Body Metrics**: 2×2 stat card grid — Height, Weight, Stride, Daily Goal — each with icon + large value + colored container (primaryContainer, secondaryContainer, tertiaryContainer, surfaceVariant)
-- **Appearance**: 4 ThemeChips (Dynamic, Ocean, Forest, Sunset) with colored dot + selected border — live theme switching
-- **Edit Profile** full-width button at bottom
-
-### Profile image in TopAppBar
-- `ProfileAvatar` composable in `MainActivity`: shows `AsyncImage` (32dp circle, Coil) when `profileImageUri` is set, falls back to `Person` icon when null
-- Image is the same URI saved from the photo picker — consistent across profile view and main nav
-
-### Profile image upload
-- `PickVisualMedia` photo picker in `ProfileViewScreen`
-- `takePersistableUriPermission` called (wrapped in `runCatching`) for persistence across restarts
-- `MainViewModel.saveProfileImage(uri)` saves URI while preserving all other profile fields
-
-### App theming infrastructure
-- `AppTheme` enum (DYNAMIC, OCEAN, FOREST, SUNSET) in `ui/theme/AppTheme.kt`
-- Full light + dark `ColorScheme` per theme in `Theme.kt`
-- `KinetTheme` accepts `appTheme: AppTheme` — applied at root in `MainActivity`
-- Theme persisted via SharedPreferences key `"app_theme"` (ordinal int)
-- `MainViewModel.setTheme()` updates both StateFlow and SharedPreferences
-
-### Data layer
-- `UserProfile`: added `profileImageUri: String? = null`
-- `UserProfileEntity`: added nullable `profileImageUri TEXT` column
-- `KinetDatabase` bumped to **version 3**, `MIGRATION_2_3`: `ALTER TABLE user_profile ADD COLUMN profileImageUri TEXT`
-- `saveProfile()` preserves existing `profileImageUri` when measurements are updated
-- `saveProfileImage()` dedicated function for image-only updates
-
-### Coil
-- `coil = "2.7.0"` in `libs.versions.toml`, `coil-compose` in `build.gradle.kts`
+1. **Habit reminder reboot survival** — `BootReceiver` re-schedules all reminders on `ACTION_BOOT_COMPLETED`; `RECEIVE_BOOT_COMPLETED` permission added to manifest; `HabitDao.getHabitsWithReminders()` added
+2. **Reports tab (full)** — replaced placeholder with live data: weekly step chart, 6 summary stats, GitHub-style 16-week habit heatmap, per-habit 7-day completion cards with streak badges
+3. **GitHub-style heatmap** — `HabitHeatmap.kt` Canvas composable; `ReportsViewModel` builds precise 16×7 date grid (always starts on Monday); `HabitDao.getLogsSince()` Flow added; `HabitRepository.getLogsSince()` interface + impl added
+4. **Streak on Profile** — `Habit` domain model gains `bestStreak`; `HabitEntity.toDomain()` maps it; `MainViewModel` exposes `currentStreak` + `bestStreak` StateFlows (max across all active habits); `ProfileViewScreen` shows "Habit Streaks" section with fire + trophy stat cards (hidden when both = 0)
 
 ---
 
 ## 3. Immediate Next Steps
 
-1. **Physical device testing** — step counter and step detector don't fire on emulators; all accuracy and image picker work needs real hardware
-2. **Profile name field** — hero hardcodes "Kinet Athlete"; add `name: String` to `UserProfile` + MIGRATION_3_4 so users can set their own name (editable in `ProfileEditScreen`)
-3. **Session gate on DashboardScreen** — `StepEngine.isWalkingSession` is available but not surfaced in UI; consider a subtle "walking now" badge on the Steps tab
-4. **Adaptive calibration hookup** — `CalibrationEngine.updateStride()` and `updateStepInterval()` exist but are not yet called after calibration in `CalibrationViewModel`
-5. **Notification live step count** — foreground notification shows static text; update to reflect live count
-6. **Daily reset validation** — confirm step base resets correctly at midnight across reboots and `onTaskRemoved` restarts
-7. **Home tab content** — currently placeholder; plan content (streak, weekly summary, motivational card?)
-8. **Habito + Reports** — fully placeholder; plan scope for Phase 2
+1. **Physical device testing** — sensors don't fire on emulator; validate step tracking, session badge, calibration, habit reminders + reboot survival, streak calculation on real hardware
+2. **Home tab content** — only remaining placeholder; plan: daily step ring, today's habit summary (X/Y done), current streak highlight, motivational copy
+3. **Daily reset validation** — confirm step base resets correctly at midnight across reboots and `onTaskRemoved` restarts
 
 ---
 
@@ -92,16 +77,16 @@ Phase 1 architecture is complete. The app tracks steps via a foreground service,
 
 - `android.disallowKotlinSourceSets=false` in `gradle.properties` — KSP workaround, leave as-is
 - Accelerometer fallback in `StepSensorManager` is a stub — acceptable for Phase 1
-- `TYPE_STEP_DETECTOR` registered twice if CalibrationScreen is open while the service runs — harmless, Android delivers to both listeners independently
-- Profile name in hero is hardcoded as "Kinet Athlete" until a name field is added
+- `TYPE_STEP_DETECTOR` registered twice if CalibrationScreen is open while service runs — harmless; Android delivers to both listeners independently
+- `AlarmManager.setInexactRepeating` may fire a few minutes late — acceptable for daily habit reminders
 
 ---
 
 ## 5. Important Decisions This Session
 
-- **Hero uses wrapping height, not fixed** — removed `height(290.dp)` in favour of `padding(vertical = 32.dp)` + outer `Spacer(24.dp)`, so the gradient card never has dead space below the subtitle text
-- **ProfileAvatar in TopAppBar** — same Coil `AsyncImage` as the profile page; consistent identity across the app with zero extra state
-- **Appearance section kept** — theming chips remain in `ProfileViewScreen` even after a brief removal; theming infrastructure is live and functional
-- **STEP_COUNTER stays the count source of truth** — STEP_DETECTOR used only for timing/session and calibration
-- **No NavController** — routing stays StateFlow-driven `when` in `MainActivity`; revisit if screen count grows beyond Phase 1
-- **Room MIGRATION_2_3 with nullable column** — `profileImageUri TEXT` (no DEFAULT needed since nullable)
+- **`BootReceiver` uses `goAsync()`** — ensures the coroutine that re-schedules alarms is not killed before it finishes; required because `onReceive` has a ~10s budget on the main thread
+- **Heatmap always starts on a Monday** — `buildHeatmapGrid()` snaps to the Monday of the current week then subtracts 15 weeks, guaranteeing aligned columns regardless of what day today is
+- **`getLogsSince(16weeksAgo)` shared between heatmap and 7-day stats** — single DB query serves both; 7-day per-habit stats filter in-memory; avoids a second Flow subscription
+- **`bestStreak` added to `Habit` domain model** — previously only in `HabitEntity`; needed to flow through to MainViewModel for profile display without a raw DAO call from the ViewModel layer
+- **Heatmap colours resolved outside Canvas** — `MaterialTheme.colorScheme` can't be called inside `DrawScope`; all 5 level colours captured as Composable-scope vals before the Canvas lambda
+- **Profile streak section hidden when both values = 0** — avoids showing an empty section for users who haven't set up habits yet; no hard-coded zero-state placeholder needed

@@ -28,9 +28,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Height
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -68,6 +70,8 @@ import com.example.kinet.ui.theme.AppTheme
 fun ProfileViewScreen(
     profile: UserProfile,
     appTheme: AppTheme,
+    currentStreak: Int = 0,
+    bestStreak: Int = 0,
     onThemeChange: (AppTheme) -> Unit,
     onEditProfile: () -> Unit,
     onBack: () -> Unit,
@@ -191,7 +195,7 @@ fun ProfileViewScreen(
                     Spacer(Modifier.height(14.dp))
 
                     Text(
-                        text = "Kinet Athlete",
+                        text = profile.name.ifBlank { "Kinet Athlete" },
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
@@ -258,6 +262,34 @@ fun ProfileViewScreen(
                         unit = "steps",
                         containerColor = MaterialTheme.colorScheme.surfaceVariant
                     )
+                }
+
+                // ── Streaks ───────────────────────────────────────────────────
+                if (currentStreak > 0 || bestStreak > 0) {
+                    Spacer(Modifier.height(32.dp))
+                    SectionLabel("Habit Streaks")
+                    Spacer(Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        StatCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Filled.LocalFireDepartment,
+                            label = "Current Streak",
+                            value = "$currentStreak",
+                            unit = "days",
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                        StatCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Filled.EmojiEvents,
+                            label = "Best Streak",
+                            value = "$bestStreak",
+                            unit = "days",
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(32.dp))

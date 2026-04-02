@@ -4,17 +4,20 @@ import android.content.SharedPreferences
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.kinet.data.repository.ActivityRepository
+import com.example.kinet.data.repository.HabitRepository
 import com.example.kinet.domain.model.UserProfile
 import com.example.kinet.ui.theme.AppTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class MainViewModel(
     private val repository: ActivityRepository,
+    private val habitRepository: HabitRepository,
     private val prefs: SharedPreferences
 ) : ViewModel() {
 
@@ -32,6 +35,16 @@ class MainViewModel(
             started = SharingStarted.WhileSubscribed(5_000),
             initialValue = UserProfile.Default
         )
+
+    /** Highest current streak across all active habits. */
+    val currentStreak: StateFlow<Int> = habitRepository.getActiveHabits()
+        .map { habits -> habits.maxOfOrNull { it.streakCount } ?: 0 }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    /** All-time best streak across all active habits. */
+    val bestStreak: StateFlow<Int> = habitRepository.getActiveHabits()
+        .map { habits -> habits.maxOfOrNull { it.bestStreak } ?: 0 }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     private val _currentTab = MutableStateFlow(AppTab.HOME)
     val currentTab: StateFlow<AppTab> = _currentTab.asStateFlow()
@@ -72,11 +85,16 @@ class MainViewModel(
         prefs.edit().putInt("app_theme", theme.ordinal).apply()
     }
 
-    fun saveProfile(heightCm: Float, weightKg: Float, strideLengthCm: Float, dailyStepGoal: Int) {
+    fun saveProfile(name: String, heightCm: Float, weightKg: Float, strideLengthCm: Float, dailyStepGoal: Int) {
         viewModelScope.launch {
-            // Preserve existing profile image URI when saving measurements
             repository.saveUserProfile(
-                UserProfile(heightCm, weightKg, strideLengthCm, dailyStepGoal, userProfile.value.profileImageUri)
+                userProfile.value.copy(
+                    name = name,
+                    heightCm = heightCm,
+                    weightKg = weightKg,
+                    strideLengthCm = strideLengthCm,
+                    dailyStepGoal = dailyStepGoal
+                )
             )
             _showProfileEdit.value = false
         }

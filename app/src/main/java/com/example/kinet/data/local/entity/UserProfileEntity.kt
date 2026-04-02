@@ -11,6 +11,7 @@ data class UserProfileEntity(
     val weightKg: Float,
     val strideLengthCm: Float,
     val dailyStepGoal: Int = 10_000,
+    val name: String = "",
     val profileImageUri: String? = null,
     val updatedAt: Long = System.currentTimeMillis()
 )
@@ -20,5 +21,6 @@ fun UserProfileEntity.toDomain() = UserProfile(
     weightKg = weightKg,
     strideLengthCm = strideLengthCm,
     dailyStepGoal = dailyStepGoal,
+    name = name,
     profileImageUri = profileImageUri
 )

@@ -45,8 +45,9 @@ import androidx.compose.ui.unit.dp
  */
 @Composable
 fun ProfileSetupScreen(
-    onSave: (heightCm: Float, weightKg: Float, dailyStepGoal: Int) -> Unit
+    onSave: (name: String, heightCm: Float, weightKg: Float, dailyStepGoal: Int) -> Unit
 ) {
+    var nameText by remember { mutableStateOf("") }
     var heightText by remember { mutableStateOf("") }
     var weightText by remember { mutableStateOf("") }
     var stepGoalText by remember { mutableStateOf("10000") }
@@ -106,6 +107,16 @@ fun ProfileSetupScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 OutlinedTextField(
+                    value = nameText,
+                    onValueChange = { nameText = it },
+                    label = { Text("Your name") },
+                    placeholder = { Text("e.g. Alex") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
                     value = heightText,
                     onValueChange = { heightText = it },
                     label = { Text("Height") },
@@ -148,7 +159,7 @@ fun ProfileSetupScreen(
 
         // ── CTA ────────────────────────────────────────────────────────────
         Button(
-            onClick = { onSave(heightFloat!!, weightFloat!!, stepGoalInt!!) },
+            onClick = { onSave(nameText.trim(), heightFloat!!, weightFloat!!, stepGoalInt!!) },
             enabled = isValid,
             modifier = Modifier
                 .fillMaxWidth()

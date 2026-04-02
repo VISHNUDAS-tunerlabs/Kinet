@@ -38,9 +38,10 @@ import com.example.kinet.domain.model.UserProfile
 @Composable
 fun ProfileEditScreen(
     current: UserProfile,
-    onSave: (heightCm: Float, weightKg: Float, strideLengthCm: Float, dailyStepGoal: Int) -> Unit,
+    onSave: (name: String, heightCm: Float, weightKg: Float, strideLengthCm: Float, dailyStepGoal: Int) -> Unit,
     onCancel: () -> Unit
 ) {
+    var nameText by remember { mutableStateOf(current.name) }
     var heightText by remember { mutableStateOf("%.0f".format(current.heightCm)) }
     var weightText by remember { mutableStateOf("%.0f".format(current.weightKg)) }
     var strideText by remember { mutableStateOf("%.0f".format(current.strideLengthCm)) }
@@ -56,7 +57,8 @@ fun ProfileEditScreen(
             strideFloat != null && strideFloat > 0 &&
             stepGoalInt != null && stepGoalInt > 0
 
-    val hasChanges = heightFloat != current.heightCm ||
+    val hasChanges = nameText != current.name ||
+            heightFloat != current.heightCm ||
             weightFloat != current.weightKg ||
             strideFloat != current.strideLengthCm ||
             stepGoalInt != current.dailyStepGoal
@@ -88,6 +90,16 @@ fun ProfileEditScreen(
                 text = "Update your measurements to keep distance and calorie calculations accurate.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            OutlinedTextField(
+                value = nameText,
+                onValueChange = { nameText = it },
+                label = { Text("Name") },
+                placeholder = { Text("e.g. Alex") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
             )
 
             Spacer(Modifier.height(8.dp))
@@ -153,7 +165,7 @@ fun ProfileEditScreen(
                 }
                 Button(
                     onClick = {
-                        onSave(heightFloat!!, weightFloat!!, strideFloat!!, stepGoalInt!!)
+                        onSave(nameText.trim(), heightFloat!!, weightFloat!!, strideFloat!!, stepGoalInt!!)
                     },
                     enabled = isValid && hasChanges,
                     modifier = Modifier.weight(1f),

@@ -47,11 +47,13 @@ import com.example.kinet.ui.calibration.CalibrationViewModelFactory
 import com.example.kinet.ui.dashboard.DashboardScreen
 import com.example.kinet.ui.dashboard.DashboardViewModelFactory
 import com.example.kinet.ui.habito.HabitoScreen
+import com.example.kinet.ui.habito.HabitoViewModelFactory
 import com.example.kinet.ui.home.HomeScreen
 import com.example.kinet.ui.profile.ProfileEditScreen
 import com.example.kinet.ui.profile.ProfileSetupScreen
 import com.example.kinet.ui.profile.ProfileViewScreen
 import com.example.kinet.ui.reports.ReportsScreen
+import com.example.kinet.ui.reports.ReportsViewModelFactory
 import com.example.kinet.ui.theme.KinetTheme
 
 class MainActivity : ComponentActivity() {
@@ -78,24 +80,28 @@ class MainActivity : ComponentActivity() {
             val userProfile by mainViewModel.userProfile.collectAsState()
             val currentTab by mainViewModel.currentTab.collectAsState()
             val appTheme by mainViewModel.appTheme.collectAsState()
+            val currentStreak by mainViewModel.currentStreak.collectAsState()
+            val bestStreak by mainViewModel.bestStreak.collectAsState()
 
             KinetTheme(appTheme = appTheme) {
                 when (isProfileSet) {
                     null -> Box(modifier = Modifier.fillMaxSize()) // loading splash
                     false -> ProfileSetupScreen(
-                        onSave = { h, w, goal ->
-                            mainViewModel.saveProfile(h, w, h * 0.415f, goal)
+                        onSave = { name, h, w, goal ->
+                            mainViewModel.saveProfile(name, h, w, h * 0.415f, goal)
                         }
                     )
                     true -> when {
                         showProfileEdit -> ProfileEditScreen(
                             current = userProfile,
-                            onSave = { h, w, s, goal -> mainViewModel.saveProfile(h, w, s, goal) },
+                            onSave = { name, h, w, s, goal -> mainViewModel.saveProfile(name, h, w, s, goal) },
                             onCancel = { mainViewModel.closeProfileEdit() }
                         )
                         showProfile -> ProfileViewScreen(
                             profile = userProfile,
                             appTheme = appTheme,
+                            currentStreak = currentStreak,
+                            bestStreak = bestStreak,
                             onThemeChange = { mainViewModel.setTheme(it) },
                             onEditProfile = { mainViewModel.openProfileEdit() },
                             onBack = { mainViewModel.closeProfile() },
@@ -149,9 +155,15 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.padding(innerPadding)
                                 )
                                 AppTab.HABITO -> HabitoScreen(
+                                    viewModel = viewModel(
+                                        factory = HabitoViewModelFactory(applicationContext)
+                                    ),
                                     modifier = Modifier.padding(innerPadding)
                                 )
                                 AppTab.REPORTS -> ReportsScreen(
+                                    viewModel = viewModel(
+                                        factory = ReportsViewModelFactory(applicationContext)
+                                    ),
                                     modifier = Modifier.padding(innerPadding)
                                 )
                             }

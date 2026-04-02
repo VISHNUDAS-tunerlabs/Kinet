@@ -8,6 +8,7 @@ import android.hardware.SensorManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.kinet.data.repository.ActivityRepository
+import com.example.kinet.engine.CalibrationEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,11 +45,24 @@ class CalibrationViewModel(
     val hasStepDetector: Boolean = stepDetector != null
 
     private var stepCount = 0
+    private var calibrationEngine: CalibrationEngine? = null
+
+    // Timestamps (ms) of each detected step — used for cadence calculation
+    private val stepTimestampsMs = mutableListOf<Long>()
+    private var walkAvgIntervalMs = 0L
+
+    init {
+        viewModelScope.launch {
+            val profile = repository.getUserProfile().first()
+            calibrationEngine = CalibrationEngine(profile.strideLengthCm)
+        }
+    }
 
     private val stepListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
             if (event.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
                 stepCount++
+                stepTimestampsMs.add(event.timestamp / 1_000_000L)
                 _state.value = State.Active(stepCount)
             }
         }
@@ -57,6 +71,8 @@ class CalibrationViewModel(
 
     fun startWalk() {
         stepCount = 0
+        stepTimestampsMs.clear()
+        walkAvgIntervalMs = 0L
         _state.value = State.Active(0)
         stepDetector?.let {
             sensorManager.registerListener(
@@ -67,23 +83,39 @@ class CalibrationViewModel(
 
     fun stopWalk() {
         sensorManager.unregisterListener(stepListener)
+
+        // Compute average step interval from recorded timestamps
+        if (stepTimestampsMs.size >= 2) {
+            val totalTime = stepTimestampsMs.last() - stepTimestampsMs.first()
+            walkAvgIntervalMs = totalTime / (stepTimestampsMs.size - 1)
+        }
+
         if (stepCount > 0) {
             _state.value = State.Result(stepCount)
         } else {
-            // No steps counted — back to instructions
             _state.value = State.Instruction
         }
     }
 
     /**
-     * Saves the new stride derived from [distanceMeters] / [stepCount] to the user profile.
+     * Saves the calibrated stride using [CalibrationEngine.calibrate] (exact measurement),
+     * then feeds cadence into [CalibrationEngine.updateStepInterval] for adaptive tracking.
      * Preserves existing height and weight.
      */
     fun saveStride(distanceMeters: Float) {
         val steps = (_state.value as? State.Result)?.steps ?: return
         if (distanceMeters <= 0f || steps <= 0) return
 
-        val newStrideCm = (distanceMeters * 100f) / steps
+        val engine = calibrationEngine
+        val newStrideCm = if (engine != null) {
+            engine.calibrate(steps, distanceMeters)
+            if (walkAvgIntervalMs > 0L) {
+                engine.updateStepInterval(walkAvgIntervalMs)
+            }
+            engine.getStrideLengthCm()
+        } else {
+            (distanceMeters * 100f) / steps
+        }
 
         viewModelScope.launch {
             val current = repository.getUserProfile().first()

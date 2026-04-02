@@ -62,6 +62,7 @@ class ActivityRepositoryImpl(
                 weightKg = profile.weightKg,
                 strideLengthCm = profile.strideLengthCm,
                 dailyStepGoal = profile.dailyStepGoal,
+                name = profile.name,
                 profileImageUri = profile.profileImageUri,
                 updatedAt = System.currentTimeMillis()
             )
