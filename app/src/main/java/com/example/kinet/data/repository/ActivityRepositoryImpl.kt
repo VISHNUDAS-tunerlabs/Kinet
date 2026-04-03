@@ -55,6 +55,10 @@ class ActivityRepositoryImpl(
         )
     }
 
+    override suspend fun resetTodayActivity() {
+        activityDao.resetForDate(todayDate())
+    }
+
     override suspend fun saveUserProfile(profile: UserProfile) {
         profileDao.upsert(
             UserProfileEntity(

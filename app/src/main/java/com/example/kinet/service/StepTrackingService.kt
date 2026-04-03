@@ -11,16 +11,20 @@ import android.os.IBinder
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.example.kinet.MainActivity
+import com.example.kinet.R
 import com.example.kinet.data.local.KinetDatabase
 import com.example.kinet.data.repository.ActivityRepositoryImpl
+import com.example.kinet.domain.model.DailyActivity
 import com.example.kinet.engine.MetricsEngine
 import com.example.kinet.engine.StepEngine
 import com.example.kinet.engine.StepSessionState
+import com.example.kinet.engine.TrackingState
 import com.example.kinet.sensor.StepSensorManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -33,9 +37,16 @@ class StepTrackingService : Service() {
     private val stepEngine = StepEngine()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // Guard against starting multiple notification-update collectors on repeated
-    // onStartCommand calls (START_STICKY restart, task-removed restart, etc.)
+    // Guard against re-starting collectors on repeated onStartCommand calls
     private var collectingActivity = false
+
+    // Latest snapshot used for notification updates triggered by control actions
+    private var lastActivity: DailyActivity? = null
+    private var lastGoal: Int = 10_000
+    private var isPaused: Boolean = false
+
+    // Last raw sensor value — needed to advance the step base on pause/resume/reset
+    private var lastSensorValue: Long = -1L
 
     override fun onCreate() {
         super.onCreate()
@@ -50,35 +61,95 @@ class StepTrackingService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, buildNotification())
+        // startForeground MUST be called on every onStartCommand — if Android kills and
+        // restarts the service (START_STICKY) with a control-action intent, skipping this
+        // call causes an immediate crash on API 26+.
+        startForeground(NOTIFICATION_ID, buildNotification(paused = isPaused))
 
-        // Collect live activity → update foreground notification with steps + calories
+        when (intent?.action) {
+            ACTION_PAUSE  -> { handlePause();  return START_STICKY }
+            ACTION_RESUME -> { handleResume(); return START_STICKY }
+            ACTION_RESET  -> { handleReset();  return START_STICKY }
+        }
+
+        // Normal start / START_STICKY restart (no action)
         if (!collectingActivity) {
             collectingActivity = true
             scope.launch {
-                repository.getTodayActivity().collect { activity ->
-                    getSystemService(NotificationManager::class.java)
-                        ?.notify(NOTIFICATION_ID, buildNotification(activity.steps, activity.calories))
+                combine(
+                    repository.getTodayActivity(),
+                    repository.getUserProfile()
+                ) { activity, profile -> Pair(activity, profile) }
+                .collect { (activity, profile) ->
+                    lastActivity = activity
+                    lastGoal = profile.dailyStepGoal
+                    pushNotification()
                 }
             }
         }
 
         sensorManager.start(
             onStepCount = { sensorValue ->
+                lastSensorValue = sensorValue
                 val todaySteps = stepEngine.process(sensorValue)
                 persistStepBase(sensorValue)
-                scope.launch {
-                    repository.updateTodaySteps(todaySteps)
+                if (!isPaused) {
+                    scope.launch { repository.updateTodaySteps(todaySteps) }
                 }
             },
             onStepDetected = { eventTimeNs ->
                 stepEngine.onStepDetected(eventTimeNs)
-                // Publish walking session state for the dashboard badge
-                StepSessionState.update(stepEngine.isWalkingSession)
+                if (!isPaused) StepSessionState.update(stepEngine.isWalkingSession)
             }
         )
         return START_STICKY
     }
+
+    // region Control actions
+
+    private fun handlePause() {
+        if (isPaused) return
+        isPaused = true
+        if (lastSensorValue >= 0) stepEngine.pause(lastSensorValue)
+        TrackingState.update(true)
+        StepSessionState.update(false)
+        pushNotification()
+    }
+
+    private fun handleResume() {
+        if (!isPaused) return
+        isPaused = false
+        if (lastSensorValue >= 0) stepEngine.resume(lastSensorValue)
+        TrackingState.update(false)
+        pushNotification()
+    }
+
+    private fun handleReset() {
+        isPaused = false
+        if (lastSensorValue >= 0) stepEngine.resetToday(lastSensorValue)
+        TrackingState.update(false)
+        StepSessionState.update(false)
+        prefs().edit().remove(KEY_BASE_STEPS).remove(KEY_BASE_DATE).apply()
+        scope.launch { repository.resetTodayActivity() }
+        pushNotification()
+    }
+
+    private fun pushNotification() {
+        val a = lastActivity
+        getSystemService(NotificationManager::class.java)?.notify(
+            NOTIFICATION_ID,
+            buildNotification(
+                steps          = a?.steps         ?: 0,
+                calories       = a?.calories      ?: 0f,
+                distanceMeters = a?.distanceMeters ?: 0f,
+                activeMinutes  = a?.activeMinutes  ?: 0,
+                goal           = lastGoal,
+                paused         = isPaused
+            )
+        )
+    }
+
+    // endregion
 
     override fun onDestroy() {
         sensorManager.stop()
@@ -143,6 +214,14 @@ class StepTrackingService : Service() {
         )
     }
 
+    private fun actionIntent(action: String, requestCode: Int): PendingIntent {
+        val intent = Intent(this, StepTrackingService::class.java).apply { this.action = action }
+        return PendingIntent.getService(
+            this, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
     private fun ensureChannel() {
         val manager = getSystemService(NotificationManager::class.java)
         if (manager.getNotificationChannel(CHANNEL_ID) == null) {
@@ -158,39 +237,62 @@ class StepTrackingService : Service() {
         }
     }
 
-    /**
-     * Builds the foreground notification.
-     *
-     * When [steps] > 0 the content line shows live progress:
-     *   "8,432 steps  ·  312 kcal"
-     * Otherwise shows a ready-state placeholder.
-     */
-    private fun buildNotification(steps: Int = 0, calories: Float = 0f): Notification {
+    private fun buildNotification(
+        steps: Int = 0,
+        calories: Float = 0f,
+        distanceMeters: Float = 0f,
+        activeMinutes: Int = 0,
+        goal: Int = 10_000,
+        paused: Boolean = false
+    ): Notification {
         ensureChannel()
-        val contentText = if (steps > 0) {
-            "%,d steps  ·  %.0f kcal".format(steps, calories)
-        } else {
-            "Ready to track your steps"
+
+        val distanceKm = distanceMeters / 1000f
+        val goalCapped = goal.coerceAtLeast(1)
+        val progress = steps.coerceAtMost(goalCapped)
+
+        val title = when {
+            paused        -> "Kinet — Paused"
+            steps >= goal -> "Goal reached! Keep it up"
+            else          -> "Kinet — Step Tracker"
         }
+        val contentLine = "%,d / %,d steps  ·  %.0f kcal".format(steps, goal, calories)
+        val expandedText = buildString {
+            append("%,d / %,d steps\n".format(steps, goal))
+            append("%.2f km  ·  %d min active  ·  %.0f kcal".format(distanceKm, activeMinutes, calories))
+            if (paused) append("\n⏸ Tracking paused")
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Kinet")
-            .setContentText(contentText)
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setContentTitle(title)
+            .setContentText(contentLine)
+            .setSmallIcon(R.drawable.ic_notification_steps)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setContentIntent(tapIntent())
+            .setStyle(NotificationCompat.BigTextStyle().bigText(expandedText))
+            .setProgress(goalCapped, progress, false)
+            .addAction(
+                0,
+                if (paused) "Resume" else "Pause",
+                actionIntent(if (paused) ACTION_RESUME else ACTION_PAUSE, 10)
+            )
+            .addAction(0, "Reset", actionIntent(ACTION_RESET, 11))
             .build()
     }
 
     // endregion
 
     companion object {
-        const val NOTIFICATION_ID = 100   // foreground service — kept low to avoid collision
-        private const val CHANNEL_ID = "kinet_step_tracking"
-        private const val PREFS_NAME = "kinet_step_prefs"
-        private const val KEY_BASE_DATE = "base_date"
+        const val NOTIFICATION_ID = 100
+        const val ACTION_PAUSE  = "com.example.kinet.ACTION_PAUSE"
+        const val ACTION_RESUME = "com.example.kinet.ACTION_RESUME"
+        const val ACTION_RESET  = "com.example.kinet.ACTION_RESET"
+        private const val CHANNEL_ID   = "kinet_step_tracking"
+        private const val PREFS_NAME   = "kinet_step_prefs"
+        private const val KEY_BASE_DATE  = "base_date"
         private const val KEY_BASE_STEPS = "base_steps"
     }
 }

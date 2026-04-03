@@ -2,74 +2,85 @@
 
 ## 1. Current State of the Project
 
-Phase 1 is feature-complete. All four tabs are live with real data. The app tracks steps via a foreground service, persists data with Room (v5), and has full navigation with bottom tabs, onboarding, calibration, profile (name/photo/edit/streaks), a fully functional Habito module with live streaks and reminders that survive reboot, and a Reports tab with a GitHub-style habit heatmap.
+Phase 1 is feature-complete. All four tabs are live with real data. The app tracks steps via a foreground service, persists data with Room (v5), and has full navigation with bottom tabs, onboarding, calibration, profile (name/photo/edit/streaks), a fully functional Habito module with live streaks and reminders that survive reboot, a Reports tab with a GitHub-style habit heatmap, a rich foreground notification with live stats, and pause/resume/reset controls on the dashboard.
 
 **Stack:** Kotlin, Jetpack Compose, Android Sensor API, Room v5, SharedPreferences.
 
 **Key files:**
 
 ### App shell
-- `MainActivity.kt` — StateFlow-driven `when` routing; no NavController; passes typed ViewModels to all screens; collects `currentStreak` + `bestStreak` from MainViewModel for ProfileViewScreen
-- `MainViewModel.kt` — owns `isProfileSet`, `userProfile`, `currentTab`, `showProfile`, `showProfileEdit`, `showCalibration`, `appTheme`, `currentStreak`, `bestStreak`; depends on both `ActivityRepository` and `HabitRepository`
+- `MainActivity.kt` — StateFlow-driven `when` routing; no NavController; passes typed ViewModels to all screens
+- `MainViewModel.kt` — owns `isProfileSet`, `userProfile`, `currentTab`, `showProfile`, `showProfileEdit`, `showCalibration`, `appTheme`, `currentStreak`, `bestStreak`
 - `MainViewModelFactory.kt` — wires `ActivityRepositoryImpl` + `HabitRepositoryImpl` + SharedPreferences
 
 ### Sensor & engine
-- `service/StepTrackingService.kt` — foreground service; NOTIFICATION_ID = 100; `collectingActivity` guard; live notification `"%,d steps · %.0f kcal"`; calls `StepSessionState.update()` on every STEP_DETECTOR event
-- `service/HabitReminderReceiver.kt` — BroadcastReceiver; NOTIFICATION_ID = 200; `HabitReminderScheduler` object inside
-- `service/BootReceiver.kt` — `ACTION_BOOT_COMPLETED` receiver; re-schedules all reminders via `HabitReminderScheduler.schedule()` using `getHabitsWithReminders()` DAO query
-- `engine/StepEngine.kt` — delta calculation + timing/session detection via STEP_DETECTOR
-- `engine/StepSessionState.kt` — process-wide singleton `MutableStateFlow<Boolean>`; updated by service, observed by DashboardViewModel
-- `engine/CalibrationEngine.kt` — manual calibration + adaptive EMA (80/20) for stride and cadence
+- `service/StepTrackingService.kt` — foreground service; NOTIFICATION_ID = 100; handles `ACTION_PAUSE`, `ACTION_RESUME`, `ACTION_RESET` intents; `startForeground` called on EVERY `onStartCommand` (required to avoid crash on API 26+ when service is restarted with a control-action intent); `collectingActivity` guard; `combine(getTodayActivity, getUserProfile)` drives live notification; stores `lastSensorValue` for pause/resume base adjustment; `isPaused` service field mirrors `TrackingState`
+- `service/HabitReminderReceiver.kt` — BroadcastReceiver; NOTIFICATION_ID = 200
+- `service/BootReceiver.kt` — re-schedules all reminders on boot via `HabitReminderScheduler`
+- `engine/StepEngine.kt` — delta calculation + timing/session detection; supports `pause(sensorValue)`, `resume(sensorValue)`, `resetToday(sensorValue)`; `frozenStepCount` holds the step count displayed while paused; `resume()` advances `baseSteps` by steps accumulated during pause to skip them
+- `engine/StepSessionState.kt` — process-wide singleton `MutableStateFlow<Boolean>`; updated by service
+- `engine/TrackingState.kt` — process-wide singleton `MutableStateFlow<Boolean>` for `isPaused`; updated by service, observed by DashboardViewModel
+- `engine/CalibrationEngine.kt` — manual calibration + adaptive EMA (80/20)
 - `engine/MetricsEngine.kt` — distance, calories, active minutes formulas
 
 ### Data layer
 - `data/local/KinetDatabase.kt` — Room v5; MIGRATION_1_2 through MIGRATION_4_5
+- `data/local/dao/DailyActivityDao.kt` — `getByDate()`, `getLastSevenDays()`, `upsert()`, `resetForDate()` (zeros steps/distance/calories/activeMinutes for a date)
 - `data/local/dao/HabitDao.kt` — `getActiveHabits()`, `getHabitsWithReminders()`, `getById()`, `insertOrReplace()`, `softDelete()`, `getLogsByDate()`, `getLogsByHabitId()`, `getLogsSince()`, `insertOrReplaceLog()`, `updateStreaks()`
-- `data/repository/HabitRepositoryImpl.kt` — `logHabit()` triggers `recalculateStreak()`; streak walks back up to 365 days of COMPLETED logs; updates `streakCount` + `bestStreak`; `getLogsSince()` exposed for Reports
+- `data/repository/ActivityRepository.kt` — interface includes `resetTodayActivity()`
+- `data/repository/ActivityRepositoryImpl.kt` — `resetTodayActivity()` calls `activityDao.resetForDate(todayDate())`
+- `data/repository/HabitRepositoryImpl.kt` — `logHabit()` triggers `recalculateStreak()`
 
 ### UI — Dashboard (Steps tab)
-- `ui/dashboard/DashboardViewModel.kt` — observes `StepSessionState.isWalking` as `isWalkingSession`
-- `ui/dashboard/DashboardScreen.kt` — animated "Walking" badge (fadeIn/fadeOut) on StepGoalCard; calibration entry card at bottom
+- `ui/dashboard/DashboardViewModel.kt` — exposes `todayActivity`, `stepGoal`, `isWalkingSession`, `isPaused`; `pause()`, `resume()`, `resetSteps()` send intents to service via `appContext`; constructor takes `appContext: Context`
+- `ui/dashboard/DashboardViewModelFactory.kt` — passes `context.applicationContext` as `appContext`
+- `ui/dashboard/DashboardScreen.kt` — `StepGoalCard` has Pause/Resume toggle (`FilledTonalButton`) + Reset button (`FilledTonalButton`); "Paused" badge (red) animates in place of "Walking" badge; progress bar turns error-red when paused; reset shows `AlertDialog` confirmation
+
+### UI — Notification
+- Rich foreground notification: collapsed shows `"N,NNN / 10,000 steps · NNN kcal"`; expanded shows distance + active minutes; progress bar toward goal; "Pause/Resume" + "Reset" action buttons; title changes to "Kinet — Paused" / "Goal reached!" appropriately
+- Icon: `res/drawable/ic_notification_steps.xml` — monochrome vector footprints (no `android:tint` — causes resource linking error)
 
 ### UI — Calibration
-- `ui/calibration/CalibrationViewModel.kt` — creates `CalibrationEngine` in `init`; records step timestamps during walk; `stopWalk()` computes avg interval; `saveStride()` calls `engine.calibrate()` + `engine.updateStepInterval()`
+- `ui/calibration/CalibrationViewModel.kt` — records step timestamps during walk; `saveStride()` calls `engine.calibrate()` + `engine.updateStepInterval()`
 
 ### UI — Profile
-- `ui/profile/ProfileSetupScreen.kt` — onboarding; optional name field first
-- `ui/profile/ProfileViewScreen.kt` — hero with name/avatar; Body Metrics cards; **Habit Streaks section** (current + best streak, only shown when > 0); Appearance theme chips; Edit Profile button
+- `ui/profile/ProfileSetupScreen.kt` — onboarding with step goal field
+- `ui/profile/ProfileViewScreen.kt` — Habit Streaks section (hidden when both = 0)
 - `ui/profile/ProfileEditScreen.kt` — name, height, weight, stride, goal fields
 
 ### UI — Habito
-- `ui/habito/HabitoScreen.kt` — three sub-screens: LIST, ADD_EDIT, DAILY_LOG; streak shown as `"N day streak"` in primary color; category icons; reminder time display
-- `ui/habito/HabitoViewModel.kt` — sub-screen nav; step-based auto-evaluation via `combine`; save/delete/log
-- `ui/habito/HabitoViewModelFactory.kt`
+- `ui/habito/HabitoScreen.kt` — LIST / ADD_EDIT / DAILY_LOG sub-screens; streak badges; reminder time display
+- `ui/habito/HabitoViewModel.kt` — step-based auto-evaluation via `combine`
 
 ### UI — Reports
-- `ui/reports/ReportsViewModel.kt` — combines `weeklyActivities + activeHabits + getLogsSince(16weeksAgo)`; computes step summaries, `HabitWeekStats` (7-day per-habit), and `heatmapWeeks` (16×7 grid of `HeatmapDay`)
-- `ui/reports/ReportsScreen.kt` — This Week: step chart + 6 stat cards; Habit Activity: heatmap card + per-habit cards with completion bar
-- `ui/reports/HabitHeatmap.kt` — Canvas composable; 16 cols × 7 rows; month labels top; M/W/F day labels left; 5 colour levels (surfaceVariant → primary at 4 intensities); legend bottom-right; theme-aware colours resolved before Canvas
-- `ui/reports/ReportsViewModelFactory.kt`
-
-### UI — Components
-- `ui/components/WeeklyChart.kt` — Canvas bar chart; reused on Dashboard and Reports
-- `ui/components/MetricCard.kt`
+- `ui/reports/ReportsViewModel.kt` — 16-week heatmap grid; per-habit 7-day stats; weekly step summaries
+- `ui/reports/ReportsScreen.kt` — step chart + 6 stat cards + heatmap + per-habit completion cards
+- `ui/reports/HabitHeatmap.kt` — Canvas; 16×7 grid; 5 colour levels; month/day labels; legend
 
 ---
 
 ## 2. What Was Accomplished This Session
 
-1. **Habit reminder reboot survival** — `BootReceiver` re-schedules all reminders on `ACTION_BOOT_COMPLETED`; `RECEIVE_BOOT_COMPLETED` permission added to manifest; `HabitDao.getHabitsWithReminders()` added
-2. **Reports tab (full)** — replaced placeholder with live data: weekly step chart, 6 summary stats, GitHub-style 16-week habit heatmap, per-habit 7-day completion cards with streak badges
-3. **GitHub-style heatmap** — `HabitHeatmap.kt` Canvas composable; `ReportsViewModel` builds precise 16×7 date grid (always starts on Monday); `HabitDao.getLogsSince()` Flow added; `HabitRepository.getLogsSince()` interface + impl added
-4. **Streak on Profile** — `Habit` domain model gains `bestStreak`; `HabitEntity.toDomain()` maps it; `MainViewModel` exposes `currentStreak` + `bestStreak` StateFlows (max across all active habits); `ProfileViewScreen` shows "Habit Streaks" section with fire + trophy stat cards (hidden when both = 0)
+1. **Rich foreground notification** — notification now shows `"N,NNN / goal steps · NNN kcal"` (collapsed) and `"distance · active mins · kcal"` (expanded); progress bar toward daily goal; title changes on goal reached / paused; uses custom footstep vector icon (`ic_notification_steps.xml`); `combine(getTodayActivity, getUserProfile)` drives all updates
+2. **Pause / Resume / Reset** — full implementation across all layers:
+   - `StepEngine`: `pause()`, `resume()` (skips steps during pause by advancing base), `resetToday()` (re-anchors base to current sensor value)
+   - `DailyActivityDao`: `resetForDate()` SQL query
+   - `ActivityRepository` + `ActivityRepositoryImpl`: `resetTodayActivity()`
+   - `StepTrackingService`: handles `ACTION_PAUSE/RESUME/RESET` intents; stores `lastSensorValue`; notification has action buttons; `TrackingState` singleton updated
+   - `DashboardViewModel`: exposes `isPaused`; `pause()`, `resume()`, `resetSteps()` methods
+   - `DashboardScreen`: Pause/Resume toggle + Reset button in `StepGoalCard`; reset confirmation dialog; "Paused" badge; progress bar color change
+3. **Bug fix — service crash on action intent restart** — `startForeground` moved to top of `onStartCommand` (before action dispatch), preventing crash when Android restarts a killed service with a control-action intent
+4. **Bug fix — wrong button component** — replaced `FilledTonalIconButton` (icon-only, fixed 40dp) with `FilledTonalButton` (supports icon+text, respects `weight()` modifier)
+5. **Bug fix — drawable XML** — removed `android:tint="?attr/colorControlNormal"` (not resolvable in drawable XML context) and fixed malformed `<vector>` tag (missing `>` left by the edit)
 
 ---
 
 ## 3. Immediate Next Steps
 
-1. **Physical device testing** — sensors don't fire on emulator; validate step tracking, session badge, calibration, habit reminders + reboot survival, streak calculation on real hardware
-2. **Home tab content** — only remaining placeholder; plan: daily step ring, today's habit summary (X/Y done), current streak highlight, motivational copy
-3. **Daily reset validation** — confirm step base resets correctly at midnight across reboots and `onTaskRemoved` restarts
+1. **Physical device testing** — validate step tracking, pause/resume/reset accuracy, notification action buttons, sensor behavior across app kill/restart cycles
+2. **Daily reset validation** — confirm step base resets correctly at midnight and after reboot; verify `resetForDate` doesn't affect previous days' data
+3. **Home tab content** — only remaining placeholder; plan: daily step ring, today's habit summary (X/Y done), current streak highlight, motivational copy
+4. **Persist pause state across service restart** — currently if the service is killed while paused and restarted, `isPaused` resets to `false` and steps during the pause are counted; fix: persist `sensorValueAtPause` to SharedPreferences
 
 ---
 
@@ -77,16 +88,16 @@ Phase 1 is feature-complete. All four tabs are live with real data. The app trac
 
 - `android.disallowKotlinSourceSets=false` in `gradle.properties` — KSP workaround, leave as-is
 - Accelerometer fallback in `StepSensorManager` is a stub — acceptable for Phase 1
-- `TYPE_STEP_DETECTOR` registered twice if CalibrationScreen is open while service runs — harmless; Android delivers to both listeners independently
-- `AlarmManager.setInexactRepeating` may fire a few minutes late — acceptable for daily habit reminders
+- **Pause state lost on service restart** — `TrackingState.isPaused` and `StepEngine.isPaused` both reset to `false` if the process is killed while paused; steps accumulated during pause will be counted on next run
+- `AlarmManager.setInexactRepeating` may fire a few minutes late — acceptable for habit reminders
 
 ---
 
 ## 5. Important Decisions This Session
 
-- **`BootReceiver` uses `goAsync()`** — ensures the coroutine that re-schedules alarms is not killed before it finishes; required because `onReceive` has a ~10s budget on the main thread
-- **Heatmap always starts on a Monday** — `buildHeatmapGrid()` snaps to the Monday of the current week then subtracts 15 weeks, guaranteeing aligned columns regardless of what day today is
-- **`getLogsSince(16weeksAgo)` shared between heatmap and 7-day stats** — single DB query serves both; 7-day per-habit stats filter in-memory; avoids a second Flow subscription
-- **`bestStreak` added to `Habit` domain model** — previously only in `HabitEntity`; needed to flow through to MainViewModel for profile display without a raw DAO call from the ViewModel layer
-- **Heatmap colours resolved outside Canvas** — `MaterialTheme.colorScheme` can't be called inside `DrawScope`; all 5 level colours captured as Composable-scope vals before the Canvas lambda
-- **Profile streak section hidden when both values = 0** — avoids showing an empty section for users who haven't set up habits yet; no hard-coded zero-state placeholder needed
+- **`startForeground` always called first** — Android API 26+ requires `startForeground` within 5s of any `onStartCommand`; moving it before the action dispatch prevents a crash if the service is killed and restarted with a control-action intent queued
+- **`FilledTonalButton` over `FilledTonalIconButton` for Pause/Reset** — `FilledTonalIconButton` is fixed 40×40dp and not designed for icon+text; `FilledTonalButton` fills `weight(1f)` correctly
+- **`lastSensorValue` stored in service** — `pause()`, `resume()`, and `resetToday()` all need the current sensor value; storing it in `onStepCount` callback gives accurate timing without passing it through intent extras
+- **`combine(getTodayActivity, getUserProfile)`** — single combined flow drives notification updates; guarantees step goal is always current when building the progress bar
+- **`resetForDate` SQL (not delete)** — zeroes columns instead of deleting the row; preserves the date entry in Room so the Flow emits an update (delete + re-insert would require an upsert trigger); dashboard updates to 0 immediately
+- **No tint on notification vector drawable** — `?attr/colorControlNormal` is a theme attribute not resolvable in a raw drawable XML; notification system renders small icons as monochrome white automatically

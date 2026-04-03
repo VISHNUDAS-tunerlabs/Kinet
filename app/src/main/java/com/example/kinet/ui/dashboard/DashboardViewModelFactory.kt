@@ -22,7 +22,8 @@ class DashboardViewModelFactory(private val context: Context) : ViewModelProvide
         return DashboardViewModel(
             getTodayActivity = GetTodayActivityUseCase(repository),
             getWeeklyActivities = GetWeeklyActivitiesUseCase(repository),
-            repository = repository
+            repository = repository,
+            appContext = context.applicationContext
         ) as T
     }
 }

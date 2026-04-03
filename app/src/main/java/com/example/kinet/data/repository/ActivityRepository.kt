@@ -10,5 +10,6 @@ interface ActivityRepository {
     fun getUserProfile(): Flow<UserProfile>
     fun isProfileSet(): Flow<Boolean>
     suspend fun updateTodaySteps(steps: Int)
+    suspend fun resetTodayActivity()
     suspend fun saveUserProfile(profile: UserProfile)
 }

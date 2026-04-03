@@ -17,17 +17,28 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +58,7 @@ fun DashboardScreen(
     val weekly by viewModel.weeklyActivities.collectAsState()
     val stepGoal by viewModel.stepGoal.collectAsState()
     val isWalking by viewModel.isWalkingSession.collectAsState()
+    val isPaused by viewModel.isPaused.collectAsState()
 
     Column(
         modifier = modifier
@@ -61,7 +73,15 @@ fun DashboardScreen(
             fontWeight = FontWeight.Bold
         )
 
-        StepGoalCard(activity = today, goal = stepGoal, isWalking = isWalking)
+        StepGoalCard(
+            activity = today,
+            goal = stepGoal,
+            isWalking = isWalking,
+            isPaused = isPaused,
+            onPause = { viewModel.pause() },
+            onResume = { viewModel.resume() },
+            onReset = { viewModel.resetSteps() }
+        )
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -125,9 +145,35 @@ fun DashboardScreen(
 }
 
 @Composable
-private fun StepGoalCard(activity: DailyActivity, goal: Int, isWalking: Boolean) {
+private fun StepGoalCard(
+    activity: DailyActivity,
+    goal: Int,
+    isWalking: Boolean,
+    isPaused: Boolean,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onReset: () -> Unit
+) {
     val progress = min(activity.steps.toFloat() / goal, 1f)
     val remaining = (goal - activity.steps).coerceAtLeast(0)
+    var showResetDialog by remember { mutableStateOf(false) }
+
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text("Reset today's steps?") },
+            text = { Text("This will clear all steps, distance, and calories recorded today.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showResetDialog = false
+                    onReset()
+                }) { Text("Reset") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -156,8 +202,36 @@ private fun StepGoalCard(activity: DailyActivity, goal: Int, isWalking: Boolean)
                     )
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    // "Walking now" badge — animates in/out as session state changes
-                    AnimatedVisibility(visible = isWalking, enter = fadeIn(), exit = fadeOut()) {
+                    // Status badge — Paused takes priority over Walking
+                    AnimatedVisibility(visible = isPaused, enter = fadeIn(), exit = fadeOut()) {
+                        Surface(
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.error
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Pause,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onError,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "Paused",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onError
+                                )
+                            }
+                        }
+                    }
+                    AnimatedVisibility(
+                        visible = isWalking && !isPaused,
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
                         Surface(
                             shape = MaterialTheme.shapes.small,
                             color = MaterialTheme.colorScheme.tertiary
@@ -203,13 +277,62 @@ private fun StepGoalCard(activity: DailyActivity, goal: Int, isWalking: Boolean)
                     }
                 }
             }
+
             Spacer(modifier = Modifier.height(12.dp))
             LinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.primary,
+                color = if (isPaused)
+                    MaterialTheme.colorScheme.error
+                else
+                    MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f)
             )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Control row: Pause/Resume + Reset
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = { if (isPaused) onResume() else onPause() },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = if (isPaused)
+                            MaterialTheme.colorScheme.tertiaryContainer
+                        else
+                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.12f),
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                ) {
+                    Icon(
+                        imageVector = if (isPaused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                    Text(if (isPaused) "Resume" else "Pause")
+                }
+
+                FilledTonalButton(
+                    onClick = { showResetDialog = true },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.12f),
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                    Text("Reset")
+                }
+            }
         }
     }
 }

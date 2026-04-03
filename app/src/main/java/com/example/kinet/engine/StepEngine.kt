@@ -21,12 +21,39 @@ class StepEngine {
      * Called when TYPE_STEP_COUNTER fires with its cumulative value.
      * Returns today's step count relative to the base established at session start.
      */
+    private var isPaused = false
+    private var sensorValueAtPause: Long = -1L
+    private var frozenStepCount: Int = 0
+
     fun process(sensorValue: Long): Int {
+        if (isPaused) return frozenStepCount
         if (baseSteps < 0) {
             baseSteps = sensorValue
             return 0
         }
-        return (sensorValue - baseSteps).toInt().coerceAtLeast(0)
+        frozenStepCount = (sensorValue - baseSteps).toInt().coerceAtLeast(0)
+        return frozenStepCount
+    }
+
+    fun pause(sensorValue: Long) {
+        isPaused = true
+        sensorValueAtPause = sensorValue
+    }
+
+    fun resume(sensorValue: Long) {
+        if (isPaused && sensorValueAtPause >= 0 && baseSteps >= 0) {
+            baseSteps += (sensorValue - sensorValueAtPause).coerceAtLeast(0)
+        }
+        isPaused = false
+        sensorValueAtPause = -1L
+    }
+
+    fun resetToday(sensorValue: Long) {
+        baseSteps = sensorValue
+        frozenStepCount = 0
+        isPaused = false
+        sensorValueAtPause = -1L
+        clearTimingState()
     }
 
     fun restoreBase(base: Long) {
@@ -37,6 +64,9 @@ class StepEngine {
 
     fun reset() {
         baseSteps = -1L
+        frozenStepCount = 0
+        isPaused = false
+        sensorValueAtPause = -1L
         clearTimingState()
     }
 
