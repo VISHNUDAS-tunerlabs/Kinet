@@ -19,7 +19,8 @@ data class HabitEntity(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val streakCount: Int = 0,
-    val bestStreak: Int = 0
+    val bestStreak: Int = 0,
+    val cardColor: String = "FFFFFF"
 )
 
 fun HabitEntity.toDomain() = Habit(
@@ -33,5 +34,6 @@ fun HabitEntity.toDomain() = Habit(
     reminderTime = reminderTime,
     isActive = isActive,
     streakCount = streakCount,
-    bestStreak = bestStreak
+    bestStreak = bestStreak,
+    cardColor = cardColor
 )

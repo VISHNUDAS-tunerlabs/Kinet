@@ -2,55 +2,76 @@
 
 ## 1. Current State of the Project
 
-Phase 1 is feature-complete. All four tabs are live with real data. The app tracks steps via a foreground service, persists data with Room (v5), and has full navigation with bottom tabs, onboarding, calibration, profile (name/photo/edit/streaks), a fully functional Habito module with live streaks and reminders that survive reboot, a Reports tab with a GitHub-style habit heatmap, a rich foreground notification with live stats, and pause/resume/reset controls on the dashboard.
+Phase 1 is feature-complete. All four tabs are live with real data. The app tracks steps via a foreground service, persists data with Room (v6), and has full navigation with bottom tabs, onboarding, calibration, profile (name/photo/edit/streaks), a fully functional Habito module with live streaks and reminders that survive reboot, a Reports tab with a GitHub-style habit heatmap, a rich foreground notification with live stats, and pause/resume/reset controls on the dashboard.
 
-**Stack:** Kotlin, Jetpack Compose, Android Sensor API, Room v5, SharedPreferences.
+**Stack:** Kotlin, Jetpack Compose, Android Sensor API, Room v6, SharedPreferences.
 
 **Key files:**
 
 ### App shell
-- `MainActivity.kt` — StateFlow-driven `when` routing; no NavController; passes typed ViewModels to all screens
+- `MainActivity.kt` — StateFlow-driven `when` routing; no NavController; passes typed ViewModels to all screens; `habitoViewModel` hoisted here for FAB + TopAppBar visibility control
 - `MainViewModel.kt` — owns `isProfileSet`, `userProfile`, `currentTab`, `showProfile`, `showProfileEdit`, `showCalibration`, `appTheme`, `currentStreak`, `bestStreak`
 - `MainViewModelFactory.kt` — wires `ActivityRepositoryImpl` + `HabitRepositoryImpl` + SharedPreferences
 
 ### Sensor & engine
-- `service/StepTrackingService.kt` — foreground service; NOTIFICATION_ID = 100; handles `ACTION_PAUSE`, `ACTION_RESUME`, `ACTION_RESET` intents; `startForeground` called on EVERY `onStartCommand` (required to avoid crash on API 26+ when service is restarted with a control-action intent); `collectingActivity` guard; `combine(getTodayActivity, getUserProfile)` drives live notification; stores `lastSensorValue` for pause/resume base adjustment; `isPaused` service field mirrors `TrackingState`
+- `service/StepTrackingService.kt` — foreground service; NOTIFICATION_ID = 100; handles `ACTION_PAUSE`, `ACTION_RESUME`, `ACTION_RESET` intents; `startForeground` called on EVERY `onStartCommand`; `isPaused` service field mirrors `TrackingState`
 - `service/HabitReminderReceiver.kt` — BroadcastReceiver; NOTIFICATION_ID = 200
 - `service/BootReceiver.kt` — re-schedules all reminders on boot via `HabitReminderScheduler`
-- `engine/StepEngine.kt` — delta calculation + timing/session detection; supports `pause(sensorValue)`, `resume(sensorValue)`, `resetToday(sensorValue)`; `frozenStepCount` holds the step count displayed while paused; `resume()` advances `baseSteps` by steps accumulated during pause to skip them
-- `engine/StepSessionState.kt` — process-wide singleton `MutableStateFlow<Boolean>`; updated by service
-- `engine/TrackingState.kt` — process-wide singleton `MutableStateFlow<Boolean>` for `isPaused`; updated by service, observed by DashboardViewModel
+- `engine/StepEngine.kt` — delta calculation + timing/session detection; supports `pause(sensorValue)`, `resume(sensorValue)`, `resetToday(sensorValue)`
+- `engine/StepSessionState.kt` — process-wide singleton `MutableStateFlow<Boolean>`
+- `engine/TrackingState.kt` — process-wide singleton `MutableStateFlow<Boolean>` for `isPaused`
 - `engine/CalibrationEngine.kt` — manual calibration + adaptive EMA (80/20)
 - `engine/MetricsEngine.kt` — distance, calories, active minutes formulas
 
 ### Data layer
-- `data/local/KinetDatabase.kt` — Room v5; MIGRATION_1_2 through MIGRATION_4_5
-- `data/local/dao/DailyActivityDao.kt` — `getByDate()`, `getLastSevenDays()`, `upsert()`, `resetForDate()` (zeros steps/distance/calories/activeMinutes for a date)
+- `data/local/KinetDatabase.kt` — Room **v6**; MIGRATION_1_2 through MIGRATION_5_6
+  - MIGRATION_5_6: `ALTER TABLE habits ADD COLUMN cardColor TEXT NOT NULL DEFAULT 'FFFFFF'`
+- `data/local/dao/DailyActivityDao.kt` — `getByDate()`, `getLastSevenDays()`, `upsert()`, `resetForDate()`
 - `data/local/dao/HabitDao.kt` — `getActiveHabits()`, `getHabitsWithReminders()`, `getById()`, `insertOrReplace()`, `softDelete()`, `getLogsByDate()`, `getLogsByHabitId()`, `getLogsSince()`, `insertOrReplaceLog()`, `updateStreaks()`
-- `data/repository/ActivityRepository.kt` — interface includes `resetTodayActivity()`
-- `data/repository/ActivityRepositoryImpl.kt` — `resetTodayActivity()` calls `activityDao.resetForDate(todayDate())`
-- `data/repository/HabitRepositoryImpl.kt` — `logHabit()` triggers `recalculateStreak()`
+- `data/repository/HabitRepositoryImpl.kt` — `logHabit()` triggers `recalculateStreak()`; passes `cardColor` when building `HabitEntity`
+- `domain/model/Habit.kt` — `cardColor: String = "FFFFFF"` field added (hex string without `#`)
+- `data/local/entity/HabitEntity.kt` — `cardColor: String = "FFFFFF"` column added; mapped in `toDomain()`
 
 ### UI — Dashboard (Steps tab)
-- `ui/dashboard/DashboardViewModel.kt` — exposes `todayActivity`, `stepGoal`, `isWalkingSession`, `isPaused`; `pause()`, `resume()`, `resetSteps()` send intents to service via `appContext`; constructor takes `appContext: Context`
-- `ui/dashboard/DashboardViewModelFactory.kt` — passes `context.applicationContext` as `appContext`
-- `ui/dashboard/DashboardScreen.kt` — `StepGoalCard` has Pause/Resume toggle (`FilledTonalButton`) + Reset button (`FilledTonalButton`); "Paused" badge (red) animates in place of "Walking" badge; progress bar turns error-red when paused; reset shows `AlertDialog` confirmation
+- `ui/dashboard/DashboardViewModel.kt` — exposes `todayActivity`, `stepGoal`, `isWalkingSession`, `isPaused`; `pause()`, `resume()`, `resetSteps()` send intents to service
+- `ui/dashboard/DashboardScreen.kt` — Pause/Resume toggle + Reset button; "Paused" badge; progress bar turns error-red when paused
 
-### UI — Notification
-- Rich foreground notification: collapsed shows `"N,NNN / 10,000 steps · NNN kcal"`; expanded shows distance + active minutes; progress bar toward goal; "Pause/Resume" + "Reset" action buttons; title changes to "Kinet — Paused" / "Goal reached!" appropriately
-- Icon: `res/drawable/ic_notification_steps.xml` — monochrome vector footprints (no `android:tint` — causes resource linking error)
-
-### UI — Calibration
-- `ui/calibration/CalibrationViewModel.kt` — records step timestamps during walk; `saveStride()` calls `engine.calibrate()` + `engine.updateStepInterval()`
-
-### UI — Profile
-- `ui/profile/ProfileSetupScreen.kt` — onboarding with step goal field
-- `ui/profile/ProfileViewScreen.kt` — Habit Streaks section (hidden when both = 0)
-- `ui/profile/ProfileEditScreen.kt` — name, height, weight, stride, goal fields
+### UI — Theme
+- `ui/theme/Theme.kt` — **app is light-only**; dark scheme removed entirely; dynamic scheme forces `AppBackground` + `AppSurface`
+- `ui/theme/Color.kt` — `AppBackground = #F8F9FA`, `TextPrimary = #0D0D0D`, `TextSecondary = #444444`
+- `ui/theme/Type.kt` — **Nunito** via Google Fonts for all 15 M3 text styles; `TextPrimary` for display/headline/title, `TextSecondary` for body/label
+- `res/values/themes.xml` — `android:windowBackground = @color/app_background` (prevents black flash on launch)
+- `res/values/colors.xml` — `app_background = #FFF8F9FA`
+- `res/values/font_certs.xml` — GMS Google Fonts provider certificates
 
 ### UI — Habito
-- `ui/habito/HabitoScreen.kt` — LIST / ADD_EDIT / DAILY_LOG sub-screens; streak badges; reminder time display
-- `ui/habito/HabitoViewModel.kt` — step-based auto-evaluation via `combine`
+- `ui/habito/HabitoViewModel.kt`
+  - `HabitoSubScreen`: LIST, ADD_EDIT, DAILY_LOG, HABIT_DETAILS
+  - `saveHabit()` now accepts `cardColor: String` parameter
+  - `last30DaysLogs` StateFlow for 30-day completion rate
+  - `_selectedHabit` / `selectedHabit` for HabitDetailsScreen
+- `ui/habito/HabitoScreen.kt` — major redesign this session (see below)
+
+#### HabitoScreen current design:
+- **HabitListScreen**: LazyColumn with `GreetingHeader` → spacer → `WeekDateStrip` → `TodayOverviewCard` → 2-column habit grid
+- **GreetingHeader**: time-aware greeting, avatar, notifications icon
+- **WeekDateStrip**: 5-day view (today±2); `RoundedCornerShape(100.dp)` capsule per day; past=`#4DD631`, today=`#1A1A1A`, future=white; `weight(1f)` equal distribution; `headlineSmall` date + `bodyMedium` day name
+- **TodayOverviewCard**: dark (`#1A1A1A`) card; `titleLarge` bold title; `bodyMedium` subtitle; custom Box progress bar (`7.dp` height, `RoundedCornerShape(50)`, `#4DD631` fill); BarChart icon `34.dp` with `clip(RoundedCornerShape(6.dp))`; padding `24.dp` horizontal + vertical
+- **HabitGridCard**:
+  - Card elevation `3.dp` (subtle shadow)
+  - Card color from `habit.cardColor` (parsed via `android.graphics.Color.parseColor`)
+  - Padding `18.dp` all around
+  - Top row: category icon (left) · delete icon + checkbox (right)
+  - Delete icon: `20.dp`, `#1A1A1A`, touch target `32.dp`
+  - Checkbox border: `#1A1A1A`; completed = `CheckCircle` in primary color
+  - Title: `bodyLarge`, Bold, `#1A1A1A`
+  - Reminder chip: Alarm icon `13.dp` + `labelMedium` text, both `#1A1A1A`
+  - Streak row: fire icon `15.dp` + `labelMedium` count, both `#1A1A1A`
+- **AddEditHabitScreen**:
+  - Color picker row: 4 circular swatches (`#4DD631`, `#FCB932`, `#FFFFFF`, `#81AEFC`); selected = dark border + checkmark
+  - `onSave` lambda: `(String, HabitCategory, Boolean, Int?, Boolean, String?, String) -> Unit` (7th param = `cardColor`)
+- **HabitDetailsScreen**: hero card, streak stat cards, 30-day completion rate, "Mark as Completed" CTA
+- TopAppBar hidden on HABITO tab; FAB shown only on LIST sub-screen (bottom-right)
 
 ### UI — Reports
 - `ui/reports/ReportsViewModel.kt` — 16-week heatmap grid; per-habit 7-day stats; weekly step summaries
@@ -61,26 +82,25 @@ Phase 1 is feature-complete. All four tabs are live with real data. The app trac
 
 ## 2. What Was Accomplished This Session
 
-1. **Rich foreground notification** — notification now shows `"N,NNN / goal steps · NNN kcal"` (collapsed) and `"distance · active mins · kcal"` (expanded); progress bar toward daily goal; title changes on goal reached / paused; uses custom footstep vector icon (`ic_notification_steps.xml`); `combine(getTodayActivity, getUserProfile)` drives all updates
-2. **Pause / Resume / Reset** — full implementation across all layers:
-   - `StepEngine`: `pause()`, `resume()` (skips steps during pause by advancing base), `resetToday()` (re-anchors base to current sensor value)
-   - `DailyActivityDao`: `resetForDate()` SQL query
-   - `ActivityRepository` + `ActivityRepositoryImpl`: `resetTodayActivity()`
-   - `StepTrackingService`: handles `ACTION_PAUSE/RESUME/RESET` intents; stores `lastSensorValue`; notification has action buttons; `TrackingState` singleton updated
-   - `DashboardViewModel`: exposes `isPaused`; `pause()`, `resume()`, `resetSteps()` methods
-   - `DashboardScreen`: Pause/Resume toggle + Reset button in `StepGoalCard`; reset confirmation dialog; "Paused" badge; progress bar color change
-3. **Bug fix — service crash on action intent restart** — `startForeground` moved to top of `onStartCommand` (before action dispatch), preventing crash when Android restarts a killed service with a control-action intent
-4. **Bug fix — wrong button component** — replaced `FilledTonalIconButton` (icon-only, fixed 40dp) with `FilledTonalButton` (supports icon+text, respects `weight()` modifier)
-5. **Bug fix — drawable XML** — removed `android:tint="?attr/colorControlNormal"` (not resolvable in drawable XML context) and fixed malformed `<vector>` tag (missing `>` left by the edit)
+1. **TodayOverviewCard polish** — larger text (`titleLarge`/`bodyMedium`), more padding (`24.dp`), custom rounded Box progress bar (`7.dp`, `#4DD631`), BarChart icon enlarged to `34.dp` with `RoundedCornerShape(6.dp)` clip; increased gap between date strip and greeting header
+2. **Habit card color picker** — 4 color options (`#4DD631`, `#FCB932`, `#FFFFFF`, `#81AEFC`) in Add/Edit screen; stored in `cardColor` field; propagated through domain model → entity → DB (MIGRATION_5_6) → ViewModel → UI
+3. **Habit card UI refinements**:
+   - Padding `14dp` → `18dp`
+   - Title `bodyMedium` → `bodyLarge`
+   - Delete icon larger (`20dp`), black (`#1A1A1A`)
+   - Checkbox border black (`#1A1A1A`)
+   - Reminder + fire icons/text: larger sizes, all black (`#1A1A1A`)
+   - Elevation `0dp` → `3dp` for subtle shadow
+4. **BarChart icon fix** — removed unnecessary Box wrapper; `clip(RoundedCornerShape(6.dp))` applied directly to icon modifier
 
 ---
 
 ## 3. Immediate Next Steps
 
-1. **Physical device testing** — validate step tracking, pause/resume/reset accuracy, notification action buttons, sensor behavior across app kill/restart cycles
-2. **Daily reset validation** — confirm step base resets correctly at midnight and after reboot; verify `resetForDate` doesn't affect previous days' data
-3. **Home tab content** — only remaining placeholder; plan: daily step ring, today's habit summary (X/Y done), current streak highlight, motivational copy
-4. **Persist pause state across service restart** — currently if the service is killed while paused and restarted, `isPaused` resets to `false` and steps during the pause are counted; fix: persist `sensorValueAtPause` to SharedPreferences
+1. **Physical device testing** — validate card color persists across app restart; confirm MIGRATION_5_6 runs cleanly on existing installs
+2. **Home tab content** — still a placeholder; plan: daily step ring, today's habit summary (X/Y done), current streak highlight
+3. **Habit card white color contrast** — white card on `#F8F9FA` background may be hard to distinguish; consider a subtle border when `cardColor == "FFFFFF"`
+4. **Persist pause state across service restart** — if service is killed while paused, `isPaused` resets to `false`; fix: persist `sensorValueAtPause` to SharedPreferences
 
 ---
 
@@ -88,16 +108,16 @@ Phase 1 is feature-complete. All four tabs are live with real data. The app trac
 
 - `android.disallowKotlinSourceSets=false` in `gradle.properties` — KSP workaround, leave as-is
 - Accelerometer fallback in `StepSensorManager` is a stub — acceptable for Phase 1
-- **Pause state lost on service restart** — `TrackingState.isPaused` and `StepEngine.isPaused` both reset to `false` if the process is killed while paused; steps accumulated during pause will be counted on next run
+- **Pause state lost on service restart** — steps accumulated during pause counted on next run
 - `AlarmManager.setInexactRepeating` may fire a few minutes late — acceptable for habit reminders
+- White habit card (`#FFFFFF`) on white-ish app background (`#F8F9FA`) has low visual separation — no border added yet
 
 ---
 
 ## 5. Important Decisions This Session
 
-- **`startForeground` always called first** — Android API 26+ requires `startForeground` within 5s of any `onStartCommand`; moving it before the action dispatch prevents a crash if the service is killed and restarted with a control-action intent queued
-- **`FilledTonalButton` over `FilledTonalIconButton` for Pause/Reset** — `FilledTonalIconButton` is fixed 40×40dp and not designed for icon+text; `FilledTonalButton` fills `weight(1f)` correctly
-- **`lastSensorValue` stored in service** — `pause()`, `resume()`, and `resetToday()` all need the current sensor value; storing it in `onStepCount` callback gives accurate timing without passing it through intent extras
-- **`combine(getTodayActivity, getUserProfile)`** — single combined flow drives notification updates; guarantees step goal is always current when building the progress bar
-- **`resetForDate` SQL (not delete)** — zeroes columns instead of deleting the row; preserves the date entry in Room so the Flow emits an update (delete + re-insert would require an upsert trigger); dashboard updates to 0 immediately
-- **No tint on notification vector drawable** — `?attr/colorControlNormal` is a theme attribute not resolvable in a raw drawable XML; notification system renders small icons as monochrome white automatically
+- **`cardColor` stored as hex string without `#`** (e.g. `"4DD631"`) — parsed at render time with `android.graphics.Color.parseColor("#$cardColor")`; default `"FFFFFF"`
+- **Room v5 → v6** — `MIGRATION_5_6` is a simple `ALTER TABLE ADD COLUMN`; existing habits get `cardColor = 'FFFFFF'` (white) automatically
+- **Progress bar as custom Box** — `LinearProgressIndicator` doesn't support rounded ends in M3 without workarounds; custom nested `Box` with `RoundedCornerShape(50)` gives full control over height, color, and shape
+- **Fire icon always black** — removed the conditional orange/grey; black is more consistent with the card's design language regardless of streak count
+- **`clip()` directly on Icon modifier** — avoids extra layout node; `RoundedCornerShape(6.dp)` clips the icon's rectangular bounding box for a slightly softened look

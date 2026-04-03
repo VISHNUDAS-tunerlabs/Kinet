@@ -16,8 +16,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
@@ -47,6 +49,8 @@ import com.example.kinet.ui.calibration.CalibrationViewModelFactory
 import com.example.kinet.ui.dashboard.DashboardScreen
 import com.example.kinet.ui.dashboard.DashboardViewModelFactory
 import com.example.kinet.ui.habito.HabitoScreen
+import com.example.kinet.ui.habito.HabitoSubScreen
+import com.example.kinet.ui.habito.HabitoViewModel
 import com.example.kinet.ui.habito.HabitoViewModelFactory
 import com.example.kinet.ui.home.HomeScreen
 import com.example.kinet.ui.profile.ProfileEditScreen
@@ -73,6 +77,10 @@ class MainActivity : ComponentActivity() {
             val mainViewModel: MainViewModel = viewModel(
                 factory = MainViewModelFactory(applicationContext)
             )
+            val habitoViewModel: HabitoViewModel = viewModel(
+                factory = HabitoViewModelFactory(applicationContext)
+            )
+
             val isProfileSet by mainViewModel.isProfileSet.collectAsState()
             val showProfile by mainViewModel.showProfile.collectAsState()
             val showProfileEdit by mainViewModel.showProfileEdit.collectAsState()
@@ -82,6 +90,7 @@ class MainActivity : ComponentActivity() {
             val appTheme by mainViewModel.appTheme.collectAsState()
             val currentStreak by mainViewModel.currentStreak.collectAsState()
             val bestStreak by mainViewModel.bestStreak.collectAsState()
+            val habitoSubScreen by habitoViewModel.subScreen.collectAsState()
 
             KinetTheme(appTheme = appTheme) {
                 when (isProfileSet) {
@@ -116,14 +125,17 @@ class MainActivity : ComponentActivity() {
                         )
                         else -> Scaffold(
                             topBar = {
-                                TopAppBar(
-                                    title = { Text(currentTab.label) },
-                                    actions = {
-                                        IconButton(onClick = { mainViewModel.openProfile() }) {
-                                            ProfileAvatar(imageUri = userProfile.profileImageUri)
+                                // Habito tab owns its own header; hide the generic TopAppBar
+                                if (currentTab != AppTab.HABITO) {
+                                    TopAppBar(
+                                        title = { Text(currentTab.label) },
+                                        actions = {
+                                            IconButton(onClick = { mainViewModel.openProfile() }) {
+                                                ProfileAvatar(imageUri = userProfile.profileImageUri)
+                                            }
                                         }
-                                    }
-                                )
+                                    )
+                                }
                             },
                             bottomBar = {
                                 NavigationBar {
@@ -141,6 +153,19 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                 }
+                            },
+                            floatingActionButton = {
+                                if (currentTab == AppTab.HABITO &&
+                                    habitoSubScreen == HabitoSubScreen.LIST
+                                ) {
+                                    FloatingActionButton(
+                                        onClick = {
+                                            habitoViewModel.navigateTo(HabitoSubScreen.ADD_EDIT)
+                                        }
+                                    ) {
+                                        Icon(Icons.Filled.Add, contentDescription = "Add Habit")
+                                    }
+                                }
                             }
                         ) { innerPadding ->
                             when (currentTab) {
@@ -155,9 +180,10 @@ class MainActivity : ComponentActivity() {
                                     modifier = Modifier.padding(innerPadding)
                                 )
                                 AppTab.HABITO -> HabitoScreen(
-                                    viewModel = viewModel(
-                                        factory = HabitoViewModelFactory(applicationContext)
-                                    ),
+                                    viewModel = habitoViewModel,
+                                    userName = userProfile.name,
+                                    profileImageUri = userProfile.profileImageUri,
+                                    onOpenProfile = { mainViewModel.openProfile() },
                                     modifier = Modifier.padding(innerPadding)
                                 )
                                 AppTab.REPORTS -> ReportsScreen(

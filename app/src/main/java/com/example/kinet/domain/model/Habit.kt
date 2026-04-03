@@ -11,7 +11,8 @@ data class Habit(
     val reminderTime: String?,   // "HH:mm" format
     val isActive: Boolean,
     val streakCount: Int = 0,
-    val bestStreak: Int = 0
+    val bestStreak: Int = 0,
+    val cardColor: String = "FFFFFF"  // hex without '#'
 )
 
 data class HabitLog(

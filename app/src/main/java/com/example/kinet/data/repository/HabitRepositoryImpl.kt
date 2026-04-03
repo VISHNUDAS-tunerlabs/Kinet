@@ -41,7 +41,8 @@ class HabitRepositoryImpl(private val dao: HabitDao) : HabitRepository {
                 reminderTime = habit.reminderTime,
                 isActive = habit.isActive,
                 updatedAt = System.currentTimeMillis(),
-                streakCount = habit.streakCount
+                streakCount = habit.streakCount,
+                cardColor = habit.cardColor
             )
         )
 

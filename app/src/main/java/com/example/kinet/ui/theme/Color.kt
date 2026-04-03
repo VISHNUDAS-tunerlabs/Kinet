@@ -2,6 +2,10 @@ package com.example.kinet.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
+val AppBackground = Color(0xFFF8F9FA)
+val TextPrimary   = Color(0xFF0D0D0D)
+val TextSecondary = Color(0xFF444444)
+
 // Default (Purple)
 val Purple80 = Color(0xFFD0BCFF)
 val PurpleGrey80 = Color(0xFFCCC2DC)

@@ -19,8 +19,10 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
-enum class HabitoSubScreen { LIST, ADD_EDIT, DAILY_LOG }
+enum class HabitoSubScreen { LIST, ADD_EDIT, DAILY_LOG, HABIT_DETAILS }
 
 class HabitoViewModel(
     private val habitRepository: HabitRepository,
@@ -34,6 +36,9 @@ class HabitoViewModel(
     private val _editingHabit = MutableStateFlow<Habit?>(null)
     val editingHabit: StateFlow<Habit?> = _editingHabit.asStateFlow()
 
+    private val _selectedHabit = MutableStateFlow<Habit?>(null)
+    val selectedHabit: StateFlow<Habit?> = _selectedHabit.asStateFlow()
+
     val habits: StateFlow<List<Habit>> = habitRepository.getActiveHabits()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -43,6 +48,10 @@ class HabitoViewModel(
     val todaySteps: StateFlow<Int> = activityRepository.getTodayActivity()
         .map { it.steps }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+
+    val last30DaysLogs: StateFlow<List<HabitLog>> = habitRepository
+        .getLogsSince(LocalDate.now().minusDays(30).format(DateTimeFormatter.ISO_LOCAL_DATE))
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
         HabitReminderReceiver.ensureChannel(appContext)
@@ -64,7 +73,11 @@ class HabitoViewModel(
     }
 
     fun navigateTo(screen: HabitoSubScreen, habit: Habit? = null) {
-        _editingHabit.value = habit
+        when (screen) {
+            HabitoSubScreen.HABIT_DETAILS -> _selectedHabit.value = habit
+            HabitoSubScreen.ADD_EDIT -> _editingHabit.value = habit
+            else -> { /* no habit payload needed */ }
+        }
         _subScreen.value = screen
     }
 
@@ -74,7 +87,8 @@ class HabitoViewModel(
         isStepBased: Boolean,
         stepTarget: Int?,
         reminderEnabled: Boolean,
-        reminderTime: String?
+        reminderTime: String?,
+        cardColor: String
     ) {
         viewModelScope.launch {
             val existing = _editingHabit.value
@@ -88,11 +102,11 @@ class HabitoViewModel(
                 reminderEnabled = reminderEnabled,
                 reminderTime = if (reminderEnabled) reminderTime else null,
                 isActive = true,
-                streakCount = existing?.streakCount ?: 0
+                streakCount = existing?.streakCount ?: 0,
+                cardColor = cardColor
             )
             val savedId = habitRepository.saveHabit(habit).toInt()
 
-            // Cancel any existing alarm for this habit, then reschedule if needed
             HabitReminderScheduler.cancel(appContext, savedId)
             if (reminderEnabled && reminderTime != null) {
                 HabitReminderScheduler.schedule(appContext, savedId, reminderTime)
